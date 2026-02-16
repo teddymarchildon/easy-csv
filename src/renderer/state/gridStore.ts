@@ -80,6 +80,7 @@ interface GridState extends Snapshot {
   closeTab: (tabId: string) => void;
   switchTab: (tabId: string) => void;
   newTab: () => void;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
 
   // Data loading / clearing
   setData: (doc: CsvDocument) => void;
@@ -431,6 +432,23 @@ export const useGridStore = create<GridState>()((set, get) => {
           activeTabId: newId,
           _tabSnapshots: updatedSnapshots
         };
+      }),
+
+    reorderTabs: (fromIndex, toIndex) =>
+      set((state) => {
+        if (
+          fromIndex === toIndex ||
+          fromIndex < 0 ||
+          toIndex < 0 ||
+          fromIndex >= state.tabs.length ||
+          toIndex >= state.tabs.length
+        ) {
+          return state;
+        }
+        const updated = [...state.tabs];
+        const [moved] = updated.splice(fromIndex, 1);
+        updated.splice(toIndex, 0, moved);
+        return { tabs: updated };
       }),
 
     // =====================================================================
