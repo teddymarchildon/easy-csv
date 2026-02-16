@@ -144,16 +144,17 @@ const Toolbar = ({
       <button onClick={onSaveFilteredAs} disabled={!hasActiveFilters} title="Save Filtered As… (⇧⌘E)">
         <IconSaveFiltered /> Save Filtered
       </button>
+      <div className="toolbar-separator" />
       <button onClick={onAddRow} disabled={!hasData}>
         <IconAddRow /> Row
       </button>
       <button onClick={onAddColumn} disabled={!hasData}>
         <IconAddCol /> Column
       </button>
-      <div className="toolbar-separator" />
       <button className={wrapText ? 'active' : ''} onClick={onToggleWrap} disabled={!hasData} title="Toggle Text Wrapping">
         <IconWrapText /> Wrap
       </button>
+      <div className="toolbar-separator" />
       <button onClick={onUndo} disabled={!canUndo} title={undoTitle}>
         <IconUndo /> Undo
       </button>
