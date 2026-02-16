@@ -1,5 +1,6 @@
 {
   "name": "easy-sheet",
+  "productName": "Easy CSV",
   "version": "0.1.0",
   "description": "Lightweight macOS CSV editor built with Electron + React",
   "private": true,

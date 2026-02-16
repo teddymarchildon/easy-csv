@@ -6,11 +6,13 @@ const path = require('path');
 module.exports = {
   outDir: 'forge-out',
   packagerConfig: {
+    name: 'Easy CSV',
     asar: true,
     icon: './icon',
     appBundleId: 'com.teddymarchildon.easycsv',
     extendInfo: {
       LSMinimumSystemVersion: '12.0',
+      CFBundleDisplayName: 'Easy CSV',
     },
     osxSign: {
       identity: 'Apple Distribution: Teddy Marchildon (55PJ732NTM)',
