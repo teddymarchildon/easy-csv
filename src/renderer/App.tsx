@@ -201,8 +201,12 @@ const App = () => {
   }, [saveAs, refreshRecents]);
 
   const handleSaveFilteredAs = useCallback(async () => {
-    await saveFilteredAs();
-  }, [saveFilteredAs]);
+    const targetPath = await saveFilteredAs();
+    if (targetPath) {
+      await openFile(targetPath);
+      refreshRecents();
+    }
+  }, [saveFilteredAs, openFile, refreshRecents]);
 
   const openTab = useGridStore((s) => s.openTab);
 

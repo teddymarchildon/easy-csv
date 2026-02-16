@@ -7,7 +7,7 @@
   --bg-body: #0f172a;
   --bg-elevated: rgba(2, 6, 23, 0.8);
   --bg-surface: rgba(15, 23, 42, 0.75);
-  --bg-surface-solid: rgba(15, 23, 42, 0.95);
+  --bg-surface-solid: #0f172a;
   --bg-overlay: rgba(15, 23, 42, 0.97);
   --bg-input: rgba(2, 6, 23, 0.6);
 
@@ -73,7 +73,7 @@
   --bg-body: #f8fafc;
   --bg-elevated: rgba(255, 255, 255, 0.92);
   --bg-surface: rgba(255, 255, 255, 0.8);
-  --bg-surface-solid: rgba(248, 250, 252, 0.98);
+  --bg-surface-solid: #f8fafc;
   --bg-overlay: rgba(255, 255, 255, 0.98);
   --bg-input: rgba(241, 245, 249, 0.8);
 
@@ -276,11 +276,13 @@ body {
   cursor: col-resize;
 }
 
+.data-grid__header-scroll {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
 .data-grid__header {
-  position: sticky;
-  top: 0;
   background: var(--bg-surface-solid);
-  z-index: 2;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -433,6 +435,38 @@ body {
 .grid-scroll-area {
   overflow: auto;
   flex: 1;
+}
+
+.data-grid__add-row {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  border-top: 1px dashed var(--border-faint);
+}
+
+.data-grid__add-row:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.data-grid__add-row:active {
+  background: var(--active-bg);
+}
+
+.data-grid__add-row svg {
+  opacity: 0.6;
+  transition: opacity 120ms ease;
+}
+
+.data-grid__add-row:hover svg {
+  opacity: 1;
 }
 
 .toolbar {

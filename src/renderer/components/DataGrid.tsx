@@ -57,6 +57,7 @@ const MIN_COLUMN_WIDTH = 50;
 
 const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, searchTerm, searchMatches, currentSearchMatch }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState<{ rowIndex: number; columnIndex: number } | null>(null);
   const [editingHeader, setEditingHeader] = useState<number | null>(null);
@@ -105,6 +106,17 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     () => `${rowNumWidth}px ${gridTemplateColumns}`,
     [rowNumWidth, gridTemplateColumns]
   );
+
+  const totalGridWidth = useMemo(
+    () => rowNumWidth + headers.reduce((sum, _, i) => sum + (columnWidths[i] ?? DEFAULT_COLUMN_WIDTH), 0),
+    [headers, columnWidths, rowNumWidth]
+  );
+
+  const handleBodyScroll = useCallback(() => {
+    if (scrollRef.current && headerScrollRef.current) {
+      headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    }
+  }, []);
 
   const filteredRows = useMemo(() => {
     const filterEntries = Object.entries(filters).filter(([, value]) => value?.length);
@@ -985,8 +997,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
       onClick={handleBackgroundClick}
       onKeyDown={handleKeyDown}
     >
-      <div className="grid-scroll-area" ref={scrollRef}>
-        <div className="data-grid__header" style={{ gridTemplateColumns: fullGridTemplateColumns }}>
+      <div className="data-grid__header-scroll" ref={headerScrollRef}>
+        <div className="data-grid__header" style={{ gridTemplateColumns: fullGridTemplateColumns, minWidth: `${totalGridWidth}px` }}>
           <div className="data-grid__row-number data-grid__row-number--header" />
           {headers.map((header, index) => {
             const headerSelected = isHeaderSelected(index);
@@ -1002,6 +1014,12 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                   'data-grid__header-cell--search-match': headerIsMatch && !headerIsCurrentMatch,
                   'data-grid__header-cell--search-current': headerIsCurrentMatch
                 })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!headerEditing) {
+                    handleHeaderClick(index, e);
+                  }
+                }}
                 onContextMenu={(e) => handleHeaderContextMenu(e, index)}
               >
                 <div className="data-grid__header-label">
@@ -1025,13 +1043,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleHeaderClick(index, e);
-                      }}
-                      style={{ cursor: 'default', flex: 1 }}
-                    >
+                    <span style={{ cursor: 'default', flex: 1 }}>
                       {header}
                     </span>
                   )}
@@ -1061,8 +1073,10 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                     autoFocus
                     placeholder="Filter..."
                     value={filters[index] ?? ''}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={(event) => onFilterChange(index, event.target.value)}
                     onKeyDown={(event) => {
+                      event.stopPropagation();
                       if (event.key === 'Escape') {
                         setOpenFilters((prev) => {
                           const next = new Set(prev);
@@ -1075,6 +1089,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                 )}
                 <div
                   className="resize-handle"
+                  onClick={(e) => e.stopPropagation()}
                   onMouseDown={(e) => startResize(e, index)}
                   onDoubleClick={() => autoFitColumn(index)}
                 />
@@ -1082,10 +1097,12 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
             );
           })}
         </div>
+      </div>
+      <div className="grid-scroll-area" ref={scrollRef} onScroll={handleBodyScroll}>
         <div
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
-            width: '100%',
+            minWidth: `${totalGridWidth}px`,
             position: 'relative'
           }}
         >
@@ -1157,6 +1174,18 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
             );
           })}
         </div>
+        <button
+          className="data-grid__add-row"
+          onClick={(e) => {
+            e.stopPropagation();
+            onInsertRowAt(rows.length);
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2H9v5a1 1 0 1 1-2 0V9H2a1 1 0 0 1 0-2h5V2a1 1 0 0 1 1-1z" />
+          </svg>
+          <span>New Row</span>
+        </button>
       </div>
 
       {contextMenu && (
