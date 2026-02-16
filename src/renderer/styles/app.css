@@ -398,6 +398,14 @@ body {
   text-overflow: ellipsis;
 }
 
+.data-grid--wrap-text .data-grid__cell {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .data-grid__cell--selected {
   background: var(--accent-bg);
   outline: 2px solid var(--accent-border);
@@ -545,6 +553,29 @@ body {
 .toolbar button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.toolbar button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.toolbar button.active svg {
+  opacity: 1;
+}
+
+.toolbar button.active:hover:not(:disabled) {
+  background: var(--accent-bg-hover, var(--accent-bg));
+  border-color: var(--accent-border);
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 1.2rem;
+  background: var(--border-cell-v);
+  margin: 0 0.15rem;
+  flex-shrink: 0;
 }
 
 /* ── Toolbar file badge ──────────────────────────── */

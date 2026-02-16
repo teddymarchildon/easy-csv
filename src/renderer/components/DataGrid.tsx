@@ -26,6 +26,7 @@ interface DataGridProps {
   searchTerm?: string;
   searchMatches?: SearchMatch[];
   currentSearchMatch?: SearchMatch | null;
+  wrapText?: boolean;
 }
 
 type ContextMenu = {
@@ -55,7 +56,7 @@ export interface DataGridHandle {
 const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, searchTerm, searchMatches, currentSearchMatch }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -175,9 +176,17 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     count: filteredRows.length,
     estimateSize: () => 32,
     getScrollElement: () => scrollRef.current,
-    overscan: 10
+    overscan: 10,
+    measureElement: wrapText
+      ? (el: Element) => el.getBoundingClientRect().height
+      : undefined,
   });
   rowVirtualizerRef.current = rowVirtualizer;
+
+  // Re-measure all rows when wrapText toggles or column widths change
+  useEffect(() => {
+    rowVirtualizerRef.current?.measure();
+  }, [wrapText, columnWidths]);
 
   // --- Cell editing ---
   const startEditing = (rowIndex: number, columnIndex: number) => {
@@ -523,14 +532,13 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
       });
     }
 
-    // Anchor the menu to the cell element rather than mouse coordinates,
-    // so two-finger-click doesn't place it far from the cell.
-    const cellEl = e.currentTarget as HTMLElement;
-    const rect = cellEl.getBoundingClientRect();
+    // backdrop-filter on .data-grid creates a new containing block for
+    // position:fixed, so we must convert viewport coords to grid-relative.
+    const gridRect = gridRef.current!.getBoundingClientRect();
     const menuWidth = 190;
     const menuHeight = 440;
-    const x = Math.max(0, Math.min(rect.left - 80, window.innerWidth - menuWidth - 8));
-    const y = Math.max(0, Math.min(rect.top - 30, window.innerHeight - menuHeight - 8));
+    const x = Math.max(0, Math.min(e.clientX - gridRect.left, gridRect.width - menuWidth - 8));
+    const y = Math.max(0, Math.min(e.clientY - gridRect.top, gridRect.height - menuHeight - 8));
     setContextMenu({ x, y, sourceRowIndex: sourceIndex, columnIndex });
   };
 
@@ -543,12 +551,11 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
       setSelected({ type: 'header', anchorCol: columnIndex, focusCol: columnIndex });
     }
 
-    const cellEl = e.currentTarget as HTMLElement;
-    const rect = cellEl.getBoundingClientRect();
+    const gridRect = gridRef.current!.getBoundingClientRect();
     const menuWidth = 190;
     const menuHeight = 320;
-    const x = Math.max(0, Math.min(rect.left - 80, window.innerWidth - menuWidth - 8));
-    const y = Math.max(0, Math.min(rect.bottom, window.innerHeight - menuHeight - 8));
+    const x = Math.max(0, Math.min(e.clientX - gridRect.left, gridRect.width - menuWidth - 8));
+    const y = Math.max(0, Math.min(e.clientY - gridRect.top, gridRect.height - menuHeight - 8));
     setContextMenu({ x, y, sourceRowIndex: 0, columnIndex, isHeader: true });
   };
 
@@ -993,7 +1000,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     <div
       ref={gridRef}
       tabIndex={0}
-      className={classNames('data-grid', { 'data-grid--resizing': isResizing })}
+      className={classNames('data-grid', { 'data-grid--resizing': isResizing, 'data-grid--wrap-text': wrapText })}
       onClick={handleBackgroundClick}
       onKeyDown={handleKeyDown}
     >
@@ -1114,6 +1121,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
             return (
               <div
                 key={virtualRow.key}
+                ref={wrapText ? rowVirtualizer.measureElement : undefined}
+                data-index={virtualRow.index}
                 className="data-grid__row"
                 style={{
                   gridTemplateColumns: fullGridTemplateColumns,

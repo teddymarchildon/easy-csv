@@ -30,11 +30,13 @@ const App = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
+  const [wrapText, setWrapText] = useState(false);
   const panelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const gridRef = useRef<DataGridHandle>(null);
   const { openViaDialog, openFile, save, saveAs, saveFilteredAs } = useFileHandlers();
 
   const togglePanel = useCallback(() => setPanelCollapsed((prev) => !prev), []);
+  const toggleWrapText = useCallback(() => setWrapText((prev) => !prev), []);
 
   const applyTheme = useCallback((resolved: ResolvedTheme) => {
     document.documentElement.setAttribute('data-theme', resolved);
@@ -263,9 +265,10 @@ const App = () => {
       { id: 'undo', label: undoLabel ? `Undo: ${undoLabel}` : 'Undo', shortcut: '⌘Z', section: 'Edit' },
       { id: 'redo', label: redoLabel ? `Redo: ${redoLabel}` : 'Redo', shortcut: '⇧⌘Z', section: 'Edit' },
       { id: 'copy-all', label: 'Copy All to Clipboard', section: 'Edit' },
+      { id: 'toggle-wrap', label: wrapText ? 'Disable Text Wrapping' : 'Enable Text Wrapping', section: 'View' },
       { id: 'settings', label: 'Settings', shortcut: '⌘,', section: 'Preferences' }
     ],
-    [panelCollapsed, undoLabel, redoLabel]
+    [panelCollapsed, undoLabel, redoLabel, wrapText]
   );
 
   const handleCommandSelect = useCallback(
@@ -317,12 +320,15 @@ const App = () => {
           navigator.clipboard.writeText(text);
           break;
         }
+        case 'toggle-wrap':
+          toggleWrapText();
+          break;
         case 'settings':
           setSettingsOpen(true);
           break;
       }
     },
-    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows]
+    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows, toggleWrapText]
   );
 
   // --- Panel resize drag logic ---
@@ -551,9 +557,10 @@ const App = () => {
         searchTerm={searchTerm}
         searchMatches={searchMatches}
         currentSearchMatch={currentSearch}
+        wrapText={wrapText}
       />
     );
-  }, [headers, rows, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex]);
+  }, [headers, rows, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText]);
 
   return (
     <div className="app-shell">
@@ -575,6 +582,8 @@ const App = () => {
         redoLabel={redoLabel}
         dirty={dirty}
         filePath={filePath}
+        wrapText={wrapText}
+        onToggleWrap={toggleWrapText}
       />
       <TabBar onOpen={handleOpen} />
       <div

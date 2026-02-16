@@ -16,6 +16,8 @@ interface ToolbarProps {
   redoLabel?: string;
   dirty: boolean;
   filePath?: string | null;
+  wrapText: boolean;
+  onToggleWrap(): void;
 }
 
 /* ── Inline SVG icons (16×16, stroke-based) ──────── */
@@ -90,6 +92,15 @@ const IconNewFile = () => (
   </svg>
 );
 
+const IconWrapText = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="2" y1="4" x2="14" y2="4" />
+    <path d="M2 8h9a2.5 2.5 0 0 1 0 5H9" />
+    <path d="M10.5 11.5 9 13l1.5 1.5" />
+    <line x1="2" y1="12" x2="5" y2="12" />
+  </svg>
+);
+
 const Toolbar = ({
   onOpen,
   onSave,
@@ -107,7 +118,9 @@ const Toolbar = ({
   undoLabel,
   redoLabel,
   dirty,
-  filePath
+  filePath,
+  wrapText,
+  onToggleWrap
 }: ToolbarProps) => {
   const filename = filePath ? filePath.split('/').pop() : 'Untitled.csv';
 
@@ -136,6 +149,10 @@ const Toolbar = ({
       </button>
       <button onClick={onAddColumn} disabled={!hasData}>
         <IconAddCol /> Column
+      </button>
+      <div className="toolbar-separator" />
+      <button className={wrapText ? 'active' : ''} onClick={onToggleWrap} disabled={!hasData} title="Toggle Text Wrapping">
+        <IconWrapText /> Wrap
       </button>
       <button onClick={onUndo} disabled={!canUndo} title={undoTitle}>
         <IconUndo /> Undo

@@ -1,0 +1,33 @@
+appId: com.easysheet.app
+productName: Easy CSV
+copyright: "Copyright © 2026 Easy CSV. All rights reserved."
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - "!out/**/*.map"
+
+asarUnpack:
+  - out/main/csvWorkerScript.js
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  target:
+    - target: mas
+      arch:
+        - universal
+
+mas:
+  type: distribution
+  entitlements: build/entitlements.mas.plist
+  entitlementsInherit: build/entitlements.mas.inherit.plist
+  # Uncomment and set the path to your provisioning profile once you have it:
+  # provisioningProfile: build/embedded.provisionprofile
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+# MAS builds produce a .pkg installer by default
