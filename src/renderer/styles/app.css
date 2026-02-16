@@ -631,7 +631,10 @@ body {
   top: 0;
   right: 1rem;
   z-index: 150;
-  padding: 0.5rem 0.5rem 0.5rem 0.65rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.4rem;
   background: var(--bg-overlay);
   border: 1px solid var(--border-subtle);
   border-top: none;
@@ -640,6 +643,26 @@ body {
   box-shadow: var(--shadow-md);
   animation: find-bar-in 120ms ease-out;
   -webkit-app-region: no-drag;
+}
+
+.find-bar__toggle {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.6rem;
+  border-radius: 0.25rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.find-bar__toggle:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
 }
 
 @keyframes find-bar-in {
@@ -651,6 +674,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .find-bar__row {
@@ -1039,11 +1064,195 @@ body {
   color: inherit;
 }
 
-.empty-state {
-  margin: auto;
-  text-align: center;
+/* ── Welcome screen (empty state) ────────────────── */
+
+.welcome-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 2rem;
+  gap: 2rem;
+  user-select: none;
+}
+
+.welcome-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.welcome-icon {
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.welcome-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.welcome-subtitle {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.welcome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--btn-border);
+  border-radius: 0.5rem;
+  background: transparent;
   color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+
+.welcome-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.welcome-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.welcome-btn--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-text);
+}
+
+.welcome-btn--primary:hover {
+  background: #3b82f6;
+  color: var(--accent-text);
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+
+.welcome-btn--primary:active {
+  background: #1d4ed8;
+  box-shadow: none;
+}
+
+.welcome-recents {
+  width: 100%;
+  max-width: 360px;
+}
+
+.welcome-section-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+  padding-left: 0.65rem;
+}
+
+.welcome-recents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.welcome-recent-item {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.45rem;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.welcome-recent-item:hover {
+  background: var(--hover-bg);
+}
+
+.welcome-recent-item:active {
+  background: var(--active-bg);
+}
+
+.welcome-recent-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.35rem;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.welcome-recent-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.welcome-recent-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-recent-path {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-shortcuts {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.welcome-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.welcome-shortcut kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  background: var(--shortcut-bg);
+  border: 1px solid var(--border-faint);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
 }
 
 /* ── Command palette ─────────────────────────────── */

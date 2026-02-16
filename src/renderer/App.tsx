@@ -27,12 +27,14 @@ const App = () => {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findBarReplaceOpen, setFindBarReplaceOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   const [wrapText, setWrapText] = useState(false);
   const panelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const gridRef = useRef<DataGridHandle>(null);
+  const prevHasDataRef = useRef(false);
   const { openViaDialog, openFile, save, saveAs, saveFilteredAs } = useFileHandlers();
 
   const togglePanel = useCallback(() => setPanelCollapsed((prev) => !prev), []);
@@ -154,8 +156,13 @@ const App = () => {
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
+    setFindBarReplaceOpen(false);
     setSearchTerm('');
     setCurrentMatchIndex(0);
+  }, []);
+
+  const handleToggleFindReplace = useCallback(() => {
+    setFindBarReplaceOpen((prev) => !prev);
   }, []);
 
   // Tab actions
@@ -259,6 +266,7 @@ const App = () => {
       { id: 'new-tab', label: 'New Tab', shortcut: '⌘T', section: 'File' },
       { id: 'close-tab', label: 'Close Tab', shortcut: '⌘W', section: 'File' },
       { id: 'find', label: 'Find', shortcut: '⌘F', section: 'Edit' },
+      { id: 'find-replace', label: 'Find and Replace', section: 'Edit' },
       { id: 'toggle-sidebar', label: panelCollapsed ? 'Show Recents' : 'Hide Recents', shortcut: '⌘B', section: 'View' },
       { id: 'add-row', label: 'Add Row', section: 'Edit' },
       { id: 'add-column', label: 'Add Column', section: 'Edit' },
@@ -296,6 +304,10 @@ const App = () => {
         }
         case 'find':
           setFindBarOpen(true);
+          break;
+        case 'find-replace':
+          setFindBarOpen(true);
+          setFindBarReplaceOpen(true);
           break;
         case 'toggle-sidebar':
           togglePanel();
@@ -530,10 +542,19 @@ const App = () => {
     };
   }, [openFile, refreshRecents]);
 
-  const gridContent = useMemo(() => {
-    if (!headers.length) {
-      return <div className="empty-state">Drop a CSV or use Open to get started.</div>;
+  // Auto-collapse sidebar when data loads, auto-expand when empty
+  const hasData = headers.length > 0;
+  useEffect(() => {
+    if (hasData && !prevHasDataRef.current) {
+      setPanelCollapsed(true);
+    } else if (!hasData && prevHasDataRef.current) {
+      setPanelCollapsed(false);
     }
+    prevHasDataRef.current = hasData;
+  }, [hasData]);
+
+  const gridContent = useMemo(() => {
+    if (!headers.length) return null;
 
     const currentSearch = searchMatches.length > 0 ? searchMatches[currentMatchIndex] : null;
 
@@ -618,7 +639,76 @@ const App = () => {
               )}
             </svg>
           </button>
-          {gridContent}
+          {gridContent || (
+            <div className="welcome-screen">
+              <div className="welcome-hero">
+                <svg className="welcome-icon" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="6" y="8" width="36" height="32" rx="3" />
+                  <line x1="6" y1="18" x2="42" y2="18" />
+                  <line x1="18" y1="8" x2="18" y2="40" />
+                  <line x1="30" y1="8" x2="30" y2="40" />
+                  <line x1="6" y1="28" x2="42" y2="28" />
+                </svg>
+                <h2 className="welcome-title">Open a CSV file</h2>
+                <p className="welcome-subtitle">Drop a file anywhere, or choose an option below</p>
+                <div className="welcome-actions">
+                  <button className="welcome-btn welcome-btn--primary" onClick={handleOpen}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 13V4.5a1 1 0 0 1 1-1h3.5l1.5 1.5H13a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1Z" />
+                      <path d="M2 8h12" />
+                    </svg>
+                    Open File
+                  </button>
+                  <button className="welcome-btn" onClick={handleCreateNewCsv}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9.5 2H4.5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5L9.5 2Z" />
+                      <path d="M9.5 2v3h3" />
+                      <line x1="8" y1="8" x2="8" y2="12" />
+                      <line x1="6" y1="10" x2="10" y2="10" />
+                    </svg>
+                    New CSV
+                  </button>
+                </div>
+              </div>
+
+              {recentFiles.length > 0 && (
+                <div className="welcome-recents">
+                  <h3 className="welcome-section-title">Recent Files</h3>
+                  <div className="welcome-recents-list">
+                    {recentFiles.slice(0, 5).map((file) => {
+                      const parts = file.path.replace(/\\/g, '/').split('/');
+                      const fileName = parts.pop() || file.path;
+                      const parentDir = parts.slice(-2).join('/');
+                      return (
+                        <button
+                          key={file.path}
+                          className="welcome-recent-item"
+                          onClick={() => handleOpenRecent(file.path)}
+                          title={file.path}
+                        >
+                          <div className="welcome-recent-icon">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                              <path d="M3 2h4l1.5 1.5H13a1 1 0 011 1V13a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                          <div className="welcome-recent-text">
+                            <span className="welcome-recent-name">{fileName}</span>
+                            {parentDir && <span className="welcome-recent-path">{parentDir}</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="welcome-shortcuts">
+                <div className="welcome-shortcut"><kbd>⌘O</kbd> Open</div>
+                <div className="welcome-shortcut"><kbd>⌘K</kbd> Commands</div>
+                <div className="welcome-shortcut"><kbd>⌘F</kbd> Find</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <CommandPalette
@@ -645,6 +735,8 @@ const App = () => {
         onClose={handleFindBarClose}
         onReplace={handleReplace}
         onReplaceAll={handleReplaceAll}
+        replaceExpanded={findBarReplaceOpen}
+        onToggleReplace={handleToggleFindReplace}
       />
     </div>
   );

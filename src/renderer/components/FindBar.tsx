@@ -11,6 +11,8 @@ interface FindBarProps {
   onClose: () => void;
   onReplace: (replaceValue: string) => void;
   onReplaceAll: (replaceValue: string) => void;
+  replaceExpanded: boolean;
+  onToggleReplace: () => void;
 }
 
 const IconChevronUp = () => (
@@ -38,6 +40,12 @@ const IconReplace = () => (
   </svg>
 );
 
+const IconToggleExpand = ({ expanded }: { expanded: boolean }) => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    {expanded ? <path d="M2 4l3 3 3-3" /> : <path d="M3 2l3 3-3 3" />}
+  </svg>
+);
+
 const FindBar = ({
   open,
   searchTerm,
@@ -48,7 +56,9 @@ const FindBar = ({
   onPrev,
   onClose,
   onReplace,
-  onReplaceAll
+  onReplaceAll,
+  replaceExpanded,
+  onToggleReplace
 }: FindBarProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -71,7 +81,7 @@ const FindBar = ({
     if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
-    } else if (e.key === 'Tab' && !e.shiftKey) {
+    } else if (e.key === 'Tab' && !e.shiftKey && replaceExpanded) {
       e.preventDefault();
       replaceInputRef.current?.focus();
     } else if (e.key === 'Enter') {
@@ -110,6 +120,13 @@ const FindBar = ({
 
   return (
     <div className="find-bar">
+      <button
+        className="find-bar__toggle"
+        onClick={onToggleReplace}
+        title={replaceExpanded ? 'Hide replace' : 'Show replace'}
+      >
+        <IconToggleExpand expanded={replaceExpanded} />
+      </button>
       <div className="find-bar__rows">
         {/* Search row */}
         <div className="find-bar__row">
@@ -153,6 +170,7 @@ const FindBar = ({
         </div>
 
         {/* Replace row */}
+        {replaceExpanded && (
         <div className="find-bar__row">
           <div className="find-bar__input-wrapper">
             <input
@@ -184,6 +202,7 @@ const FindBar = ({
           {/* Spacer to align with close button above */}
           <div className="find-bar__btn-spacer" />
         </div>
+        )}
       </div>
     </div>
   );
