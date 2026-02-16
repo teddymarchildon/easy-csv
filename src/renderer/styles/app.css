@@ -478,6 +478,8 @@ body {
 }
 
 .toolbar {
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -486,6 +488,7 @@ body {
   background: var(--bg-elevated);
   backdrop-filter: blur(14px);
   -webkit-app-region: drag;
+  overflow: visible;
 }
 
 .toolbar button {
@@ -622,6 +625,113 @@ body {
 @keyframes file-dot-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
+}
+
+/* ── Toolbar overflow menu ───────────────────────── */
+
+.toolbar-more-wrapper {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.toolbar-more {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.38rem 0.45rem;
+  border-radius: 0.45rem;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.toolbar-more:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.toolbar-more:active,
+.toolbar-more--active {
+  background: var(--active-bg);
+  color: var(--text-primary);
+}
+
+.toolbar-more svg {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+
+.toolbar-more:hover svg,
+.toolbar-more--active svg {
+  opacity: 1;
+}
+
+.toolbar-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 120;
+  min-width: 200px;
+  padding: 0.3rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-overlay);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-md);
+  animation: context-menu-in 100ms ease-out;
+}
+
+.toolbar-menu__item {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 80ms ease;
+}
+
+.toolbar-menu__item:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.toolbar-menu__item:active:not(:disabled) {
+  background: var(--active-bg);
+}
+
+.toolbar-menu__item:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.toolbar-menu__item svg {
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+
+.toolbar-menu__item:hover:not(:disabled) svg {
+  opacity: 1;
+}
+
+.toolbar-menu__check {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+}
+
+.toolbar-menu__separator {
+  height: 1px;
+  margin: 0.25rem 0.4rem;
+  background: var(--border-faint);
 }
 
 /* ── Find bar ────────────────────────────────────── */

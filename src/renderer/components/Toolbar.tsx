@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 interface ToolbarProps {
   onOpen(): void;
   onSave(): void;
@@ -101,6 +103,20 @@ const IconWrapText = () => (
   </svg>
 );
 
+const IconMore = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+    <circle cx="3" cy="8" r="1.5" />
+    <circle cx="8" cy="8" r="1.5" />
+    <circle cx="13" cy="8" r="1.5" />
+  </svg>
+);
+
+const IconCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 8.5l3.5 3.5L13 5" />
+  </svg>
+);
+
 const Toolbar = ({
   onOpen,
   onSave,
@@ -122,10 +138,42 @@ const Toolbar = ({
   wrapText,
   onToggleWrap
 }: ToolbarProps) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const filename = filePath ? filePath.split('/').pop() : 'Untitled.csv';
 
   const undoTitle = undoLabel ? `Undo: ${undoLabel} (⌘Z)` : 'Undo (⌘Z)';
   const redoTitle = redoLabel ? `Redo: ${redoLabel} (⇧⌘Z)` : 'Redo (⇧⌘Z)';
+
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        moreBtnRef.current && !moreBtnRef.current.contains(e.target as Node)
+      ) {
+        closeMenu();
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [menuOpen, closeMenu]);
+
+  const menuAction = (fn: () => void) => {
+    fn();
+    closeMenu();
+  };
 
   return (
     <div className="toolbar">
@@ -141,19 +189,6 @@ const Toolbar = ({
       <button onClick={onSaveAs} disabled={!hasData}>
         <IconSaveAs /> Save As
       </button>
-      <button onClick={onSaveFilteredAs} disabled={!hasActiveFilters} title="Save Filtered As… (⇧⌘E)">
-        <IconSaveFiltered /> Save Filtered
-      </button>
-      <div className="toolbar-separator" />
-      <button onClick={onAddRow} disabled={!hasData}>
-        <IconAddRow /> Row
-      </button>
-      <button onClick={onAddColumn} disabled={!hasData}>
-        <IconAddCol /> Column
-      </button>
-      <button className={wrapText ? 'active' : ''} onClick={onToggleWrap} disabled={!hasData} title="Toggle Text Wrapping">
-        <IconWrapText /> Wrap
-      </button>
       <div className="toolbar-separator" />
       <button onClick={onUndo} disabled={!canUndo} title={undoTitle}>
         <IconUndo /> Undo
@@ -161,6 +196,60 @@ const Toolbar = ({
       <button onClick={onRedo} disabled={!canRedo} title={redoTitle}>
         <IconRedo /> Redo
       </button>
+      <div className="toolbar-more-wrapper">
+        <button
+          ref={moreBtnRef}
+          className={`toolbar-more${menuOpen ? ' toolbar-more--active' : ''}`}
+          onClick={() => setMenuOpen((prev) => !prev)}
+          title="More actions"
+        >
+          <IconMore />
+        </button>
+        {menuOpen && (
+          <div ref={menuRef} className="toolbar-menu">
+            <button
+              className="toolbar-menu__item"
+              disabled={!hasData}
+              onClick={() => menuAction(onAddRow)}
+            >
+              <IconAddRow />
+              <span>Add Row</span>
+            </button>
+            <button
+              className="toolbar-menu__item"
+              disabled={!hasData}
+              onClick={() => menuAction(onAddColumn)}
+            >
+              <IconAddCol />
+              <span>Add Column</span>
+            </button>
+            <div className="toolbar-menu__separator" />
+            <button
+              className="toolbar-menu__item"
+              disabled={!hasData}
+              onClick={() => menuAction(onToggleWrap)}
+            >
+              <IconWrapText />
+              <span>Wrap Text</span>
+              {wrapText && (
+                <span className="toolbar-menu__check">
+                  <IconCheck />
+                </span>
+              )}
+            </button>
+            <div className="toolbar-menu__separator" />
+            <button
+              className="toolbar-menu__item"
+              disabled={!hasActiveFilters}
+              onClick={() => menuAction(onSaveFilteredAs)}
+              title="Save Filtered As… (⇧⌘E)"
+            >
+              <IconSaveFiltered />
+              <span>Save Filtered As</span>
+            </button>
+          </div>
+        )}
+      </div>
       {filename && (
         <div className="toolbar-file-badge">
           {dirty && <span className="toolbar-file-dot" />}
