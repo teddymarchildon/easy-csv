@@ -9,6 +9,9 @@ dist-electron/
 # Vite cache
 .vite/
 
+# Electron Forge output
+forge-out/
+
 # Electron packager/builder output
 release/
 build/
@@ -19,6 +22,10 @@ build/
 *.rpm
 *.exe
 *.msi
+*.pkg
+
+# Apple code signing & provisioning
+*.provisionprofile
 
 # Environment variables
 .env

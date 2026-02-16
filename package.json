@@ -11,7 +11,10 @@
     "preview": "electron-vite preview",
     "lint": "eslint . --ext .ts,.tsx",
     "check-types": "tsc --noEmit",
-    "postinstall": "if [ -d node_modules/electron/dist/Electron.app ]; then plutil -replace CFBundleName -string 'Easy CSV' node_modules/electron/dist/Electron.app/Contents/Info.plist && plutil -replace CFBundleDisplayName -string 'Easy CSV' node_modules/electron/dist/Electron.app/Contents/Info.plist; fi"
+    "postinstall": "if [ -d node_modules/electron/dist/Electron.app ]; then plutil -replace CFBundleName -string 'Easy CSV' node_modules/electron/dist/Electron.app/Contents/Info.plist && plutil -replace CFBundleDisplayName -string 'Easy CSV' node_modules/electron/dist/Electron.app/Contents/Info.plist; fi",
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make --platform=mas"
   },
   "engines": {
     "node": ">=18.18.0"
@@ -21,21 +24,31 @@
     "@tanstack/react-virtual": "^3.5.0",
     "classnames": "^2.5.1",
     "electron-log": "^5.1.2",
+    "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^10.0.1",
     "papaparse": "^5.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^5.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-pkg": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron/fuses": "^1.8.0",
     "@tsconfig/node20": "^20.1.2",
-    "@vitejs/plugin-react": "^4.3.2",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.8",
     "@types/react-dom": "^18.3.2",
     "@typescript-eslint/eslint-plugin": "^8.8.0",
     "@typescript-eslint/parser": "^8.8.0",
+    "@vitejs/plugin-react": "^4.3.2",
     "electron": "^30.0.9",
     "electron-vite": "^2.3.0",
     "eslint": "^9.11.1",
