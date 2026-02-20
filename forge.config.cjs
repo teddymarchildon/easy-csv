@@ -17,8 +17,15 @@ module.exports = {
     osxSign: {
       identity: 'Apple Distribution: Teddy Marchildon (55PJ732NTM)',
       provisioningProfile: path.resolve(__dirname, 'EasyCSVPP.provisionprofile'),
-      entitlements: path.resolve(__dirname, 'entitlements.mas.plist'),
-      'entitlements-inherit': path.resolve(__dirname, 'entitlements.mas.child.plist'),
+      optionsForFile: (filePath) => {
+        const isChildBinary = filePath.includes('.app/');
+        return {
+          entitlements: path.resolve(
+            __dirname,
+            isChildBinary ? 'entitlements.mas.child.plist' : 'entitlements.mas.plist',
+          ),
+        };
+      },
     },
     ignore: (filePath) => {
       if (!filePath) return false;
