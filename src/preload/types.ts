@@ -1,6 +1,15 @@
 import type { CsvDocument, ProgressPayload, RecentFile, ResolvedTheme, SavePayload, ThemeMode, ThemePayload } from '@shared/types';
 
-export type MenuAction = 'open' | 'save' | 'save-as' | 'settings' | 'new-tab' | 'close-tab';
+export type MenuAction =
+  | 'open'
+  | 'save'
+  | 'save-as'
+  | 'save-filtered-as'
+  | 'settings'
+  | 'new-tab'
+  | 'close-tab'
+  | 'help-filter-language'
+  | 'help-keyboard-shortcuts';
 
 export interface RendererApi {
   openFileViaDialog(): Promise<CsvDocument | null>;

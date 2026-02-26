@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 
 export const buildAppMenu = (win: BrowserWindow | null) => {
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -99,8 +99,17 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
       role: 'help',
       submenu: [
         {
-          label: 'Easy CSV Docs',
-          click: () => shell.openExternal('https://example.com/docs')
+          label: 'Easy CSV Help',
+          accelerator: 'CmdOrCtrl+/',
+          click: () => {
+            win?.webContents.send('menu:action', { action: 'help-filter-language' });
+          }
+        },
+        {
+          label: 'Keyboard Shortcuts',
+          click: () => {
+            win?.webContents.send('menu:action', { action: 'help-keyboard-shortcuts' });
+          }
         }
       ]
     }

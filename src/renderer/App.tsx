@@ -10,6 +10,8 @@ import RecentFilesPanel from './components/RecentFilesPanel';
 import CommandPalette from './components/CommandPalette';
 import type { CommandAction } from './components/CommandPalette';
 import SettingsDialog from './components/SettingsDialog';
+import HelpDialog from './components/HelpDialog';
+import type { HelpDialogSection } from './components/HelpDialog';
 import StatusBar from './components/StatusBar';
 import { useGridStore } from './state/gridStore';
 import { useFileHandlers } from './hooks/useFileHandlers';
@@ -26,6 +28,8 @@ const App = () => {
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpSection, setHelpSection] = useState<HelpDialogSection>('filter');
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findBarReplaceOpen, setFindBarReplaceOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,6 +43,14 @@ const App = () => {
 
   const togglePanel = useCallback(() => setPanelCollapsed((prev) => !prev), []);
   const toggleWrapText = useCallback(() => setWrapText((prev) => !prev), []);
+  const openFilterHelp = useCallback(() => {
+    setHelpSection('filter');
+    setHelpOpen(true);
+  }, []);
+  const openKeyboardHelp = useCallback(() => {
+    setHelpSection('shortcuts');
+    setHelpOpen(true);
+  }, []);
 
   const applyTheme = useCallback((resolved: ResolvedTheme) => {
     document.documentElement.setAttribute('data-theme', resolved);
@@ -275,7 +287,9 @@ const App = () => {
       { id: 'redo', label: redoLabel ? `Redo: ${redoLabel}` : 'Redo', shortcut: '⇧⌘Z', section: 'Edit' },
       { id: 'copy-all', label: 'Copy All to Clipboard', section: 'Edit' },
       { id: 'toggle-wrap', label: wrapText ? 'Disable Text Wrapping' : 'Enable Text Wrapping', section: 'View' },
-      { id: 'settings', label: 'Settings', shortcut: '⌘,', section: 'Preferences' }
+      { id: 'settings', label: 'Settings', shortcut: '⌘,', section: 'Preferences' },
+      { id: 'help-filter-language', label: 'Help: Filter Language + Command Palette', section: 'Help' },
+      { id: 'help-keyboard-shortcuts', label: 'Help: Keyboard Shortcuts', section: 'Help' }
     ],
     [panelCollapsed, undoLabel, redoLabel, wrapText]
   );
@@ -339,9 +353,15 @@ const App = () => {
         case 'settings':
           setSettingsOpen(true);
           break;
+        case 'help-filter-language':
+          openFilterHelp();
+          break;
+        case 'help-keyboard-shortcuts':
+          openKeyboardHelp();
+          break;
       }
     },
-    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows, toggleWrapText]
+    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp]
   );
 
   // --- Panel resize drag logic ---
@@ -495,6 +515,12 @@ const App = () => {
       if (action === 'settings') {
         setSettingsOpen(true);
       }
+      if (action === 'help-filter-language') {
+        openFilterHelp();
+      }
+      if (action === 'help-keyboard-shortcuts') {
+        openKeyboardHelp();
+      }
       if (action === 'new-tab') {
         newTab();
       }
@@ -505,7 +531,7 @@ const App = () => {
     });
 
     return () => dispose();
-  }, [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab]);
+  }, [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, openFilterHelp, openKeyboardHelp]);
 
   // Check ALL tabs for unsaved changes before unloading
   useEffect(() => {
@@ -577,13 +603,14 @@ const App = () => {
         onMoveColumns={moveColumns}
         onBeginBatch={beginBatch}
         onCommitBatch={commitBatch}
+        onOpenFilterHelp={openFilterHelp}
         searchTerm={searchTerm}
         searchMatches={searchMatches}
         currentSearchMatch={currentSearch}
         wrapText={wrapText}
       />
     );
-  }, [headers, rows, columnProfiles, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText]);
+  }, [headers, rows, columnProfiles, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText, openFilterHelp]);
 
   return (
     <div className="app-shell">
@@ -607,6 +634,7 @@ const App = () => {
         filePath={filePath}
         wrapText={wrapText}
         onToggleWrap={toggleWrapText}
+        onOpenHelp={openFilterHelp}
       />
       <TabBar onOpen={handleOpen} />
       <div
@@ -725,6 +753,7 @@ const App = () => {
         themeMode={themeMode}
         onThemeChange={handleThemeChange}
       />
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} section={helpSection} />
       <StatusBar meta={meta} dirty={dirty} progress={progress} columnProfiles={columnProfiles} />
       <FindBar
         open={findBarOpen}

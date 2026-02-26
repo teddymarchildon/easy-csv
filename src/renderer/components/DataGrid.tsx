@@ -2,7 +2,6 @@ import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo,
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CellValue, ColumnProfile } from '@shared/types';
 import classNames from 'classnames';
-import { getTypeBadgeLabel, getTypeLabel } from '../state/columnProfiling';
 import { buildFilteredRowEntries } from '../state/filtering';
 
 export interface SearchMatch {
@@ -26,6 +25,7 @@ interface DataGridProps {
   onMoveColumns: (fromStart: number, fromEnd: number, toIndex: number) => void;
   onBeginBatch: (label: string) => void;
   onCommitBatch: () => void;
+  onOpenFilterHelp: () => void;
   searchTerm?: string;
   searchMatches?: SearchMatch[];
   currentSearchMatch?: SearchMatch | null;
@@ -58,8 +58,9 @@ export interface DataGridHandle {
 
 const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
+const FILTER_HELP_DISMISSED_KEY = 'sheetEditor.filterHelpDismissed';
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -70,6 +71,13 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({});
   const [isResizing, setIsResizing] = useState(false);
   const [openFilters, setOpenFilters] = useState<Set<number>>(new Set());
+  const [showFilterHelpHint, setShowFilterHelpHint] = useState(() => {
+    try {
+      return window.localStorage.getItem(FILTER_HELP_DISMISSED_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const resizeRef = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
   const dragSelectionRef = useRef<{ anchorRow: number; anchorCol: number; moved: boolean } | null>(null);
@@ -148,18 +156,6 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       default:
         return 'Filter...';
     }
-  }, []);
-
-  const getProfileTitle = useCallback((profile?: ColumnProfile) => {
-    if (!profile) return 'Inferred type: Text';
-    const base = `Type: ${getTypeLabel(profile.inferredType)} (${Math.round(profile.confidence * 100)}%)`;
-    if (profile.inferredType === 'number' && profile.numericStats) {
-      return `${base} | min ${profile.numericStats.min}, max ${profile.numericStats.max}, avg ${profile.numericStats.mean.toFixed(2)}`;
-    }
-    if (profile.inferredType === 'date' && profile.dateStats) {
-      return `${base} | ${profile.dateStats.minIso.slice(0, 10)} .. ${profile.dateStats.maxIso.slice(0, 10)}`;
-    }
-    return base;
   }, []);
 
   // --- Search match lookup ---
@@ -1145,9 +1141,6 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                       {header}
                     </span>
                   )}
-                  <span className="data-grid__type-badge" title={getProfileTitle(profile)}>
-                    {getTypeBadgeLabel(profile?.inferredType ?? 'string')}
-                  </span>
                   <button
                     className={classNames('filter-toggle', { 'filter-toggle--active': filters[index]?.length })}
                     onClick={(e) => {
@@ -1170,23 +1163,43 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                   </button>
                 </div>
                 {openFilters.has(index) && (
-                  <input
-                    autoFocus
-                    placeholder={getFilterPlaceholder(profile)}
-                    value={filters[index] ?? ''}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => onFilterChange(index, event.target.value)}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      if (event.key === 'Escape') {
-                        setOpenFilters((prev) => {
-                          const next = new Set(prev);
-                          next.delete(index);
-                          return next;
-                        });
-                      }
-                    }}
-                  />
+                  <div className="data-grid__filter-row">
+                    <input
+                      autoFocus
+                      placeholder={getFilterPlaceholder(profile)}
+                      value={filters[index] ?? ''}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => onFilterChange(index, event.target.value)}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === 'Escape') {
+                          setOpenFilters((prev) => {
+                            const next = new Set(prev);
+                            next.delete(index);
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                    {showFilterHelpHint && (
+                      <button
+                        className="data-grid__filter-help-btn"
+                        title="Filter language help"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setShowFilterHelpHint(false);
+                          try {
+                            window.localStorage.setItem(FILTER_HELP_DISMISSED_KEY, '1');
+                          } catch {
+                            // Ignore storage failures and keep runtime behavior.
+                          }
+                          onOpenFilterHelp();
+                        }}
+                      >
+                        ?
+                      </button>
+                    )}
+                  </div>
                 )}
                 <div
                   className="resize-handle"

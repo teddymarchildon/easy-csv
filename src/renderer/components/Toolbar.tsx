@@ -20,6 +20,7 @@ interface ToolbarProps {
   filePath?: string | null;
   wrapText: boolean;
   onToggleWrap(): void;
+  onOpenHelp(): void;
 }
 
 /* ── Inline SVG icons (16×16, stroke-based) ──────── */
@@ -136,7 +137,8 @@ const Toolbar = ({
   dirty,
   filePath,
   wrapText,
-  onToggleWrap
+  onToggleWrap,
+  onOpenHelp
 }: ToolbarProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
@@ -256,6 +258,9 @@ const Toolbar = ({
           <span className="toolbar-file-name">{filename}</span>
         </div>
       )}
+      <button className="toolbar-help-btn" onClick={onOpenHelp} title="Help">
+        ?
+      </button>
     </div>
   );
 };
