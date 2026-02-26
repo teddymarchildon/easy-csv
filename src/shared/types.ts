@@ -1,4 +1,27 @@
 export type CellValue = string | number | null;
+export type ColumnInferredType = 'empty' | 'number' | 'date' | 'boolean' | 'string' | 'mixed';
+
+export interface ColumnProfile {
+  inferredType: ColumnInferredType;
+  confidence: number;
+  nonNullCount: number;
+  nullCount: number;
+  parseableCount: {
+    number: number;
+    date: number;
+    boolean: number;
+  };
+  invalidExamples: string[];
+  numericStats?: {
+    min: number;
+    max: number;
+    mean: number;
+  };
+  dateStats?: {
+    minIso: string;
+    maxIso: string;
+  };
+}
 
 export interface CsvMeta {
   rowCount: number;

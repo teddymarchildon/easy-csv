@@ -330,6 +330,30 @@ body {
   gap: 0.25rem;
 }
 
+.data-grid__header-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-grid__type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-faint);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+
 .filter-toggle {
   all: unset;
   display: inline-flex;
@@ -1157,6 +1181,12 @@ body {
   font-size: 0.8rem;
   border-top: 1px solid var(--border-color);
   background: var(--bg-elevated);
+}
+
+.status-bar__middle {
+  color: var(--text-muted);
+  text-align: center;
+  flex: 1;
 }
 
 .filters {

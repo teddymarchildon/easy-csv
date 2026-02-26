@@ -1,7 +1,9 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { CellValue } from '@shared/types';
+import type { CellValue, ColumnProfile } from '@shared/types';
 import classNames from 'classnames';
+import { getTypeBadgeLabel, getTypeLabel } from '../state/columnProfiling';
+import { buildFilteredRowEntries } from '../state/filtering';
 
 export interface SearchMatch {
   row: number;  // -1 for header match
@@ -11,6 +13,7 @@ export interface SearchMatch {
 interface DataGridProps {
   headers: string[];
   rows: CellValue[][];
+  columnProfiles: ColumnProfile[];
   filters: Record<number, string>;
   onFilterChange: (columnIndex: number, value: string) => void;
   onEditCell: (rowIndex: number, columnIndex: number, value: CellValue) => void;
@@ -56,7 +59,7 @@ export interface DataGridHandle {
 const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -69,6 +72,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
   const [openFilters, setOpenFilters] = useState<Set<number>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const resizeRef = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
+  const dragSelectionRef = useRef<{ anchorRow: number; anchorCol: number; moved: boolean } | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const mouseDownCellRef = useRef<{ row: number; col: number; wasSingleSelected: boolean } | null>(null);
 
   useImperativeHandle(ref, () => ({
     selectAll: () => {
@@ -119,20 +125,10 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     }
   }, []);
 
-  const filteredRows = useMemo(() => {
-    const filterEntries = Object.entries(filters).filter(([, value]) => value?.length);
-    if (!filterEntries.length) {
-      return rows.map((row, index) => ({ row, index }));
-    }
-    return rows
-      .map((row, index) => ({ row, index }))
-      .filter(({ row }) =>
-        filterEntries.every(([columnIndex, value]) => {
-          const cell = row[Number(columnIndex)];
-          return String(cell ?? '').toLowerCase().includes(value.toLowerCase());
-        })
-      );
-  }, [rows, filters]);
+  const filteredRows = useMemo(
+    () => buildFilteredRowEntries(rows, filters, columnProfiles),
+    [rows, filters, columnProfiles]
+  );
 
   // Map from source row index → filtered row index (for keyboard navigation)
   const sourceToFilteredIndex = useMemo(() => {
@@ -142,6 +138,29 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     });
     return map;
   }, [filteredRows]);
+
+  const getFilterPlaceholder = useCallback((profile?: ColumnProfile) => {
+    switch (profile?.inferredType) {
+      case 'number':
+        return 'Filter... (>=10, 1..5)';
+      case 'date':
+        return 'Filter... (after 2025-01-01)';
+      default:
+        return 'Filter...';
+    }
+  }, []);
+
+  const getProfileTitle = useCallback((profile?: ColumnProfile) => {
+    if (!profile) return 'Inferred type: Text';
+    const base = `Type: ${getTypeLabel(profile.inferredType)} (${Math.round(profile.confidence * 100)}%)`;
+    if (profile.inferredType === 'number' && profile.numericStats) {
+      return `${base} | min ${profile.numericStats.min}, max ${profile.numericStats.max}, avg ${profile.numericStats.mean.toFixed(2)}`;
+    }
+    if (profile.inferredType === 'date' && profile.dateStats) {
+      return `${base} | ${profile.dateStats.minIso.slice(0, 10)} .. ${profile.dateStats.maxIso.slice(0, 10)}`;
+    }
+    return base;
+  }, []);
 
   // --- Search match lookup ---
   const searchMatchSet = useMemo(() => {
@@ -334,8 +353,26 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     selected.anchorCol === columnIndex;
 
   const handleCellClick = (virtualRowIndex: number, columnIndex: number, e: React.MouseEvent) => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+
     const sourceRow = filteredRows[virtualRowIndex];
     const sourceIndex = sourceRow?.index ?? virtualRowIndex;
+    const mouseDownCell = mouseDownCellRef.current;
+    mouseDownCellRef.current = null;
+
+    if (
+      mouseDownCell &&
+      mouseDownCell.row === sourceIndex &&
+      mouseDownCell.col === columnIndex &&
+      !mouseDownCell.wasSingleSelected &&
+      !e.shiftKey
+    ) {
+      gridRef.current?.focus();
+      return;
+    }
 
     // Shift+click: extend selection from anchor
     if (e.shiftKey && selected?.type === 'cells') {
@@ -368,6 +405,58 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
       }
     });
     gridRef.current?.focus();
+  };
+
+  const stopDragSelection = useCallback(() => {
+    if (dragSelectionRef.current?.moved) {
+      suppressNextClickRef.current = true;
+    }
+    dragSelectionRef.current = null;
+    document.removeEventListener('mouseup', stopDragSelection);
+  }, []);
+
+  const handleCellMouseDown = (virtualRowIndex: number, columnIndex: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const sourceRow = filteredRows[virtualRowIndex];
+    const sourceIndex = sourceRow?.index ?? virtualRowIndex;
+    const wasSingleSelected = isSingleCellSelected(sourceIndex, columnIndex);
+    mouseDownCellRef.current = { row: sourceIndex, col: columnIndex, wasSingleSelected };
+
+    const anchorRow = e.shiftKey && selected?.type === 'cells' ? selected.range.anchorRow : sourceIndex;
+    const anchorCol = e.shiftKey && selected?.type === 'cells' ? selected.range.anchorCol : columnIndex;
+
+    setSelected({
+      type: 'cells',
+      range: {
+        anchorRow,
+        anchorCol,
+        focusRow: sourceIndex,
+        focusCol: columnIndex
+      }
+    });
+    dragSelectionRef.current = { anchorRow, anchorCol, moved: false };
+    document.addEventListener('mouseup', stopDragSelection);
+    gridRef.current?.focus();
+  };
+
+  const handleCellMouseEnter = (virtualRowIndex: number, columnIndex: number) => {
+    const drag = dragSelectionRef.current;
+    if (!drag) return;
+    const sourceRow = filteredRows[virtualRowIndex];
+    const sourceIndex = sourceRow?.index ?? virtualRowIndex;
+    if (sourceIndex !== drag.anchorRow || columnIndex !== drag.anchorCol) {
+      dragSelectionRef.current = { ...drag, moved: true };
+    }
+    setSelected({
+      type: 'cells',
+      range: {
+        anchorRow: drag.anchorRow,
+        anchorCol: drag.anchorCol,
+        focusRow: sourceIndex,
+        focusCol: columnIndex
+      }
+    });
   };
 
   const handleHeaderClick = (columnIndex: number, e: React.MouseEvent) => {
@@ -993,8 +1082,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
     return () => {
       document.removeEventListener('mousemove', handleResizeMouseMove);
       document.removeEventListener('mouseup', handleResizeMouseUp);
+      document.removeEventListener('mouseup', stopDragSelection);
     };
-  }, [handleResizeMouseMove, handleResizeMouseUp]);
+  }, [handleResizeMouseMove, handleResizeMouseUp, stopDragSelection]);
 
   return (
     <div
@@ -1008,6 +1098,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
         <div className="data-grid__header" style={{ gridTemplateColumns: fullGridTemplateColumns, minWidth: `${totalGridWidth}px` }}>
           <div className="data-grid__row-number data-grid__row-number--header" />
           {headers.map((header, index) => {
+            const profile = columnProfiles[index];
             const headerSelected = isHeaderSelected(index);
             const headerEditing = editingHeader === index;
             const headerIsMatch = isSearchMatch(-1, index);
@@ -1050,10 +1141,13 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span style={{ cursor: 'default', flex: 1 }}>
+                    <span className="data-grid__header-text" style={{ cursor: 'default', flex: 1 }}>
                       {header}
                     </span>
                   )}
+                  <span className="data-grid__type-badge" title={getProfileTitle(profile)}>
+                    {getTypeBadgeLabel(profile?.inferredType ?? 'string')}
+                  </span>
                   <button
                     className={classNames('filter-toggle', { 'filter-toggle--active': filters[index]?.length })}
                     onClick={(e) => {
@@ -1078,7 +1172,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                 {openFilters.has(index) && (
                   <input
                     autoFocus
-                    placeholder="Filter..."
+                    placeholder={getFilterPlaceholder(profile)}
                     value={filters[index] ?? ''}
                     onClick={(event) => event.stopPropagation()}
                     onChange={(event) => onFilterChange(index, event.target.value)}
@@ -1150,6 +1244,17 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                         'data-grid__cell--search-match': cellIsMatch && !cellIsCurrentMatch,
                         'data-grid__cell--search-current': cellIsCurrentMatch
                       })}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        if (!isEditing) {
+                          handleCellMouseDown(virtualRow.index, columnIndex, e);
+                        }
+                      }}
+                      onMouseEnter={() => {
+                        if (!isEditing) {
+                          handleCellMouseEnter(virtualRow.index, columnIndex);
+                        }
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCellClick(virtualRow.index, columnIndex, e);
@@ -1167,9 +1272,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, fil
                               commitEdit();
                             } else if (event.key === 'Escape') {
                               cancelEdit();
-                            } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                            } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                               event.preventDefault();
-                              commitEditAndNavigate(event.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
+                              commitEditAndNavigate(event.key as 'ArrowUp' | 'ArrowDown');
                             }
                           }}
                         />

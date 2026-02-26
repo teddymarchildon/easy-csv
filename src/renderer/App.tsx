@@ -75,6 +75,7 @@ const App = () => {
   const dirty = useGridStore((s) => s.dirty);
   const filePath = useGridStore((s) => s.filePath);
   const meta = useGridStore((s) => s.meta);
+  const columnProfiles = useGridStore((s) => s.columnProfiles);
   const canUndo = useGridStore((s) => s.undoStack.length > 0);
   const canRedo = useGridStore((s) => s.redoStack.length > 0);
   const undoLabel = useGridStore((s) =>
@@ -563,6 +564,7 @@ const App = () => {
         ref={gridRef}
         headers={headers}
         rows={rows}
+        columnProfiles={columnProfiles}
         filters={filters}
         onFilterChange={setFilter}
         onEditCell={updateCell}
@@ -581,7 +583,7 @@ const App = () => {
         wrapText={wrapText}
       />
     );
-  }, [headers, rows, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText]);
+  }, [headers, rows, columnProfiles, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText]);
 
   return (
     <div className="app-shell">
@@ -723,7 +725,7 @@ const App = () => {
         themeMode={themeMode}
         onThemeChange={handleThemeChange}
       />
-      <StatusBar meta={meta} dirty={dirty} progress={progress} />
+      <StatusBar meta={meta} dirty={dirty} progress={progress} columnProfiles={columnProfiles} />
       <FindBar
         open={findBarOpen}
         searchTerm={searchTerm}

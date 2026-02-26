@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { CellValue, CsvDocument } from '@shared/types';
+import type { CellValue, ColumnProfile, CsvDocument } from '@shared/types';
+import { inferColumnProfiles } from './columnProfiling';
+import { buildFilteredRowEntries } from './filtering';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +38,7 @@ interface TabSnapshot {
   filePath: string | null;
   dirty: boolean;
   meta: { rowCount: number; columnCount: number };
+  columnProfiles: ColumnProfile[];
   filters: Record<number, string>;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -61,6 +64,7 @@ const generateTabId = (): string => `tab-${_nextTabId++}`;
 interface GridState extends Snapshot {
   dirty: boolean;
   meta: CsvDocument['meta'];
+  columnProfiles: ColumnProfile[];
   filters: Record<number, string>;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -141,6 +145,7 @@ const captureActiveTab = (state: GridState): TabSnapshot => ({
   filePath: state.filePath ?? null,
   dirty: state.dirty,
   meta: { ...state.meta },
+  columnProfiles: [...state.columnProfiles],
   filters: { ...state.filters },
   undoStack: [...state.undoStack],
   redoStack: [...state.redoStack],
@@ -160,6 +165,7 @@ const restoreFromTabSnapshot = (
   filePath: snap.filePath,
   dirty: snap.dirty,
   meta: snap.meta,
+  columnProfiles: snap.columnProfiles,
   filters: snap.filters,
   undoStack: snap.undoStack,
   redoStack: snap.redoStack,
@@ -194,6 +200,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         rowCount: next.rows.length,
         columnCount: next.headers.length
       };
+      const nextProfiles = inferColumnProfiles(next.headers, next.rows);
 
       // --- Batch mode: accumulate without pushing to undo stack -----------
       if (state._batchDepth > 0) {
@@ -203,7 +210,8 @@ export const useGridStore = create<GridState>()((set, get) => {
           dirty: true,
           // Keep batch snapshot from before the first mutation in the batch
           _batchSnapshot: state._batchSnapshot ?? cloneSnapshot(state),
-          meta: newMeta
+          meta: newMeta,
+          columnProfiles: nextProfiles
         };
       }
 
@@ -225,7 +233,8 @@ export const useGridStore = create<GridState>()((set, get) => {
             dirty: true,
             undoStack: updatedUndo,
             redoStack: [],
-            meta: newMeta
+            meta: newMeta,
+            columnProfiles: nextProfiles
           };
         }
       }
@@ -244,7 +253,8 @@ export const useGridStore = create<GridState>()((set, get) => {
         dirty: true,
         undoStack: trimStack([...state.undoStack, entry]),
         redoStack: [],
-        meta: newMeta
+        meta: newMeta,
+        columnProfiles: nextProfiles
       };
     });
   };
@@ -253,6 +263,7 @@ export const useGridStore = create<GridState>()((set, get) => {
     ...createEmptySnapshot(),
     dirty: false,
     meta: { rowCount: 0, columnCount: 0 },
+    columnProfiles: [],
     filters: {},
     undoStack: [],
     redoStack: [],
@@ -303,6 +314,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           filePath: doc.filePath ?? null,
           dirty: false,
           meta: doc.meta,
+          columnProfiles: inferColumnProfiles(doc.headers, doc.rows),
           filters: {},
           undoStack: [],
           redoStack: [],
@@ -365,6 +377,7 @@ export const useGridStore = create<GridState>()((set, get) => {
               ...createEmptySnapshot(),
               dirty: false,
               meta: { rowCount: 0, columnCount: 0 },
+              columnProfiles: [],
               filters: {},
               undoStack: [],
               redoStack: [],
@@ -422,6 +435,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           ...createEmptySnapshot(),
           dirty: false,
           meta: { rowCount: 0, columnCount: 0 },
+          columnProfiles: [],
           filters: {},
           undoStack: [],
           redoStack: [],
@@ -470,6 +484,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         _batchLabel: null,
         _batchSnapshot: null,
         meta: doc.meta,
+        columnProfiles: inferColumnProfiles(doc.headers, doc.rows),
         // Sync active tab info
         tabs: state.tabs.map((t) =>
           t.id === state.activeTabId
@@ -616,15 +631,8 @@ export const useGridStore = create<GridState>()((set, get) => {
     },
 
     getFilteredRows: () => {
-      const { rows, filters } = get();
-      const filterEntries = Object.entries(filters).filter(([, value]) => value?.length);
-      if (!filterEntries.length) return rows;
-      return rows.filter((row) =>
-        filterEntries.every(([columnIndex, value]) => {
-          const cell = row[Number(columnIndex)];
-          return String(cell ?? '').toLowerCase().includes(value.toLowerCase());
-        })
-      );
+      const { rows, filters, columnProfiles } = get();
+      return buildFilteredRowEntries(rows, filters, columnProfiles).map((entry) => entry.row);
     },
 
     clear: () =>
@@ -632,6 +640,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         ...createEmptySnapshot(),
         dirty: false,
         meta: { rowCount: 0, columnCount: 0 },
+        columnProfiles: [],
         filters: {},
         undoStack: [],
         redoStack: [],
@@ -684,7 +693,8 @@ export const useGridStore = create<GridState>()((set, get) => {
           meta: {
             rowCount: top.snapshot.rows.length,
             columnCount: top.snapshot.headers.length
-          }
+          },
+          columnProfiles: inferColumnProfiles(top.snapshot.headers, top.snapshot.rows)
         };
       }),
 
@@ -709,7 +719,8 @@ export const useGridStore = create<GridState>()((set, get) => {
           meta: {
             rowCount: top.snapshot.rows.length,
             columnCount: top.snapshot.headers.length
-          }
+          },
+          columnProfiles: inferColumnProfiles(top.snapshot.headers, top.snapshot.rows)
         };
       }),
 
