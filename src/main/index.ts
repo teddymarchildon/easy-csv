@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from 'electron';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { CsvDocument, SavePayload, ThemeMode } from '@shared/types';
 import { FileManager } from './services/fileManager';
@@ -9,6 +10,10 @@ import { buildAppMenu } from './menu';
 import { logger } from './logger';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+]);
 let mainWindow: BrowserWindow | null = null;
 
 app.setName('Easy CSV');
@@ -51,12 +56,23 @@ const createWindow = async () => {
     mainWindow?.show();
   });
 
+  const showTimeout = setTimeout(() => {
+    logger.warn('ready-to-show did not fire within 5 seconds — forcing window visible');
+    mainWindow?.show();
+  }, 5000);
+
+  mainWindow.once('ready-to-show', () => clearTimeout(showTimeout));
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    logger.error('Renderer failed to load:', { errorCode, errorDescription });
+  });
+
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
     await mainWindow.loadURL(rendererUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    await mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    await mainWindow.loadURL('app://bundle/renderer/index.html');
   }
 };
 
@@ -67,6 +83,33 @@ app.on('window-all-closed', () => {
 });
 
 app.whenReady().then(() => {
+  const rendererDir = path.join(__dirname, '..');
+
+  const mimeTypes: Record<string, string> = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.svg': 'image/svg+xml',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2'
+  };
+
+  protocol.handle('app', async (request) => {
+    const url = new URL(request.url);
+    const filePath = path.resolve(rendererDir, decodeURIComponent(url.pathname).slice(1));
+    if (!filePath.startsWith(rendererDir)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    const data = await readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    return new Response(data, {
+      headers: { 'content-type': mimeTypes[ext] || 'application/octet-stream' }
+    });
+  });
+
   createWindow().catch((error) => logger.error(error));
 
   app.on('activate', () => {

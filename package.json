@@ -1,7 +1,7 @@
 {
   "name": "easy-sheet",
   "productName": "Easy CSV",
-  "version": "0.3.0",
+  "version": "0.3.7",
   "description": "Lightweight macOS CSV editor built with Electron + React",
   "private": true,
   "type": "module",
