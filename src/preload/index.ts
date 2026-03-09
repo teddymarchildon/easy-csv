@@ -5,8 +5,10 @@ import type { RendererApi } from './types';
 const api: RendererApi = {
   openFileViaDialog: () => ipcRenderer.invoke('dialog:open-file'),
   openFile: (path) => ipcRenderer.invoke('file:load', path),
+  startOpenFileEvents: () => ipcRenderer.invoke('app:start-open-file-events'),
   chooseSaveLocation: (defaultPath) => ipcRenderer.invoke('dialog:save-file', defaultPath),
   saveFile: (payload) => ipcRenderer.invoke('file:save', payload),
+  mergeRecentFiles: (pathA, pathB) => ipcRenderer.invoke('file:merge-recents', { pathA, pathB }),
   getRecentFiles: () => ipcRenderer.invoke('recent:list'),
   removeRecentFile: (path) => ipcRenderer.invoke('recent:remove', path),
   revealInFinder: (targetPath) => ipcRenderer.invoke('file:reveal', targetPath),
@@ -30,6 +32,15 @@ const api: RendererApi = {
       ipcRenderer.removeListener('csv:progress', listener);
     };
   },
+  onOpenFileRequest: (callback) => {
+    const listener = (_event: IpcRendererEvent, filePath: string) => {
+      callback(filePath);
+    };
+    ipcRenderer.on('file:open-request', listener);
+    return () => {
+      ipcRenderer.removeListener('file:open-request', listener);
+    };
+  },
   onMenuAction: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: { action: Parameters<typeof callback>[0] }) => {
       callback(payload.action);
@@ -39,6 +50,7 @@ const api: RendererApi = {
       ipcRenderer.removeListener('menu:action', listener);
     };
   },
+  setWindowDirty: (dirty) => ipcRenderer.send('window:set-dirty', dirty),
   log: (message) => ipcRenderer.send('log', message)
 };
 

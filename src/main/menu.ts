@@ -1,6 +1,15 @@
 import { app, BrowserWindow, Menu } from 'electron';
 
-export const buildAppMenu = (win: BrowserWindow | null) => {
+type BuildAppMenuOptions = {
+  getMainWindow: () => BrowserWindow | null;
+  reopenMainWindow: () => void;
+};
+
+export const buildAppMenu = ({ getMainWindow, reopenMainWindow }: BuildAppMenuOptions) => {
+  const sendMenuAction = (action: string) => {
+    getMainWindow()?.webContents.send('menu:action', { action });
+  };
+
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: app.name,
@@ -23,14 +32,14 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+T',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'new-tab' });
+            sendMenuAction('new-tab');
           }
         },
         {
           label: 'Open…',
           accelerator: 'CmdOrCtrl+O',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'open' });
+            sendMenuAction('open');
           }
         },
         { type: 'separator' },
@@ -38,21 +47,21 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
           label: 'Save',
           accelerator: 'CmdOrCtrl+S',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'save' });
+            sendMenuAction('save');
           }
         },
         {
           label: 'Save As…',
           accelerator: 'Shift+CmdOrCtrl+S',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'save-as' });
+            sendMenuAction('save-as');
           }
         },
         {
           label: 'Save Filtered As…',
           accelerator: 'Shift+CmdOrCtrl+E',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'save-filtered-as' });
+            sendMenuAction('save-filtered-as');
           }
         },
         { type: 'separator' },
@@ -60,7 +69,7 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
           label: 'Close Tab',
           accelerator: 'CmdOrCtrl+W',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'close-tab' });
+            sendMenuAction('close-tab');
           }
         },
         { type: 'separator' },
@@ -68,7 +77,7 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
           label: 'Settings…',
           accelerator: 'CmdOrCtrl+,',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'settings' });
+            sendMenuAction('settings');
           }
         }
       ]
@@ -93,7 +102,19 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
     },
     {
       role: 'window',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'front' }]
+      submenu: [
+        {
+          label: 'Reopen Main Window',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: () => {
+            reopenMainWindow();
+          }
+        },
+        { type: 'separator' },
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'front' }
+      ]
     },
     {
       role: 'help',
@@ -102,13 +123,13 @@ export const buildAppMenu = (win: BrowserWindow | null) => {
           label: 'Easy CSV Help',
           accelerator: 'CmdOrCtrl+/',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'help-filter-language' });
+            sendMenuAction('help-filter-language');
           }
         },
         {
           label: 'Keyboard Shortcuts',
           click: () => {
-            win?.webContents.send('menu:action', { action: 'help-keyboard-shortcuts' });
+            sendMenuAction('help-keyboard-shortcuts');
           }
         }
       ]

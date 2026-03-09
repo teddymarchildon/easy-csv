@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } fro
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import type { CsvDocument, SavePayload, ThemeMode } from '@shared/types';
+import type { CsvDocument, MergeRecentFilesPayload, SavePayload, ThemeMode } from '@shared/types';
 import { FileManager } from './services/fileManager';
 import { RecentFileStore } from './recentFiles';
 import { SettingsStore } from './settingsStore';
@@ -15,12 +15,17 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ]);
 let mainWindow: BrowserWindow | null = null;
+let activeEditorDirty = false;
+let bypassCloseConfirm = false;
+const pendingOpenFiles: string[] = [];
+let openFileEventsReady = false;
 
 app.setName('Easy CSV');
 app.setAppUserModelId('com.easysheet.app');
 
 const recents = new RecentFileStore();
 const settings = new SettingsStore();
+const pendingSaveBookmarks = new Map<string, string>();
 const fileManager = new FileManager({
   onProgress: (payload) => {
     mainWindow?.webContents.send('csv:progress', payload);
@@ -32,6 +37,36 @@ const isMac = process.platform === 'darwin';
 
 // Apply saved theme preference before creating the window
 nativeTheme.themeSource = settings.getThemeMode();
+
+const restoreMainWindow = async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    await createWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
+};
+
+const enqueueOpenFile = (filePath: string) => {
+  if (!filePath || pendingOpenFiles.includes(filePath)) {
+    return;
+  }
+  pendingOpenFiles.push(filePath);
+};
+
+const emitOpenFileRequest = (filePath: string) => {
+  if (!mainWindow || mainWindow.isDestroyed() || !openFileEventsReady) {
+    enqueueOpenFile(filePath);
+    return;
+  }
+
+  mainWindow.webContents.send('file:open-request', filePath);
+};
 
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
@@ -50,7 +85,47 @@ const createWindow = async () => {
     }
   });
 
-  buildAppMenu(mainWindow);
+  activeEditorDirty = false;
+  bypassCloseConfirm = false;
+  mainWindow.setDocumentEdited(false);
+
+  buildAppMenu({
+    getMainWindow: () => mainWindow,
+    reopenMainWindow: () => {
+      restoreMainWindow().catch((error) => logger.error(error));
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    openFileEventsReady = false;
+    mainWindow = null;
+  });
+
+  mainWindow.on('close', async (event) => {
+    if (!activeEditorDirty || bypassCloseConfirm) {
+      return;
+    }
+
+    event.preventDefault();
+    const response = await dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      buttons: ['Cancel', 'Discard Changes'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: 'Unsaved Changes',
+      message: 'You have unsaved changes in the current editor.',
+      detail: 'Close anyway? Your unsaved changes will be lost.'
+    });
+
+    if (response.response === 1) {
+      activeEditorDirty = false;
+      mainWindow?.setDocumentEdited(false);
+      bypassCloseConfirm = true;
+      mainWindow?.close();
+      bypassCloseConfirm = false;
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -66,7 +141,6 @@ const createWindow = async () => {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     logger.error('Renderer failed to load:', { errorCode, errorDescription });
   });
-
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
     await mainWindow.loadURL(rendererUrl);
@@ -114,9 +188,18 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow().catch((error) => logger.error(error));
+      restoreMainWindow().catch((error) => logger.error(error));
     }
   });
+});
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  restoreMainWindow()
+    .then(() => {
+      emitOpenFileRequest(filePath);
+    })
+    .catch((error) => logger.error(error));
 });
 
 ipcMain.handle('dialog:open-file', async () => {
@@ -124,16 +207,22 @@ ipcMain.handle('dialog:open-file', async () => {
     return null;
   }
 
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+  const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
-    filters: [{ name: 'CSV', extensions: ['csv', 'tsv'] }]
+    filters: [{ name: 'CSV', extensions: ['csv', 'tsv'] }],
+    securityScopedBookmarks: process.platform === 'darwin'
   });
 
-  if (canceled || filePaths.length === 0) {
+  if (result.canceled || result.filePaths.length === 0) {
     return null;
   }
 
-  return fileManager.open(filePaths[0]);
+  const filePath = result.filePaths[0];
+  const bookmark = Array.isArray((result as { bookmarks?: string[] }).bookmarks)
+    ? (result as { bookmarks?: string[] }).bookmarks?.[0]
+    : undefined;
+
+  return fileManager.open(filePath, { bookmark });
 });
 
 ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
@@ -141,24 +230,49 @@ ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
     return null;
   }
 
-  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+  const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath,
-    filters: [{ name: 'CSV', extensions: ['csv'] }]
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    securityScopedBookmarks: process.platform === 'darwin'
   });
 
-  if (canceled || !filePath) {
+  if (result.canceled || !result.filePath) {
     return null;
   }
 
-  return filePath;
+  const bookmark = (result as { bookmark?: string }).bookmark;
+  if (bookmark) {
+    pendingSaveBookmarks.set(result.filePath, bookmark);
+  }
+
+  return result.filePath;
 });
 
 ipcMain.handle('file:load', async (_event, filePath: string) => {
-  return fileManager.open(filePath);
+  const bookmark = recents.find(filePath)?.bookmark;
+  return fileManager.open(filePath, { bookmark });
+});
+
+ipcMain.handle('file:merge-recents', async (_event, payload: MergeRecentFilesPayload) => {
+  const bookmarkA = recents.find(payload.pathA)?.bookmark;
+  const bookmarkB = recents.find(payload.pathB)?.bookmark;
+  return fileManager.mergeRecentFiles(payload.pathA, payload.pathB, {
+    bookmarkA,
+    bookmarkB
+  });
+});
+
+ipcMain.handle('app:start-open-file-events', () => {
+  openFileEventsReady = true;
+  return pendingOpenFiles.splice(0, pendingOpenFiles.length);
 });
 
 ipcMain.handle('file:save', async (_event, payload: SavePayload) => {
-  await fileManager.save(payload);
+  const bookmark = pendingSaveBookmarks.get(payload.filePath) ?? recents.find(payload.filePath)?.bookmark;
+  if (bookmark) {
+    pendingSaveBookmarks.delete(payload.filePath);
+  }
+  await fileManager.save(payload, { bookmark });
   return true;
 });
 
@@ -176,6 +290,11 @@ ipcMain.handle('file:reveal', async (_event, targetPath: string) => {
 
 ipcMain.on('log', (_event, message: unknown) => {
   logger.info('[renderer]', message);
+});
+
+ipcMain.on('window:set-dirty', (_event, dirty: boolean) => {
+  activeEditorDirty = dirty;
+  mainWindow?.setDocumentEdited(dirty);
 });
 
 // ── Theme / settings ──────────────────────────────

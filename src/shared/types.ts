@@ -49,12 +49,23 @@ export interface SavePayload {
 export interface RecentFile {
   path: string;
   openedAt: string;
+  bookmark?: string;
 }
 
 export interface ProgressPayload {
   stage: 'parsing' | 'writing';
   percent: number;
   filePath?: string;
+}
+
+export interface MergeRecentFilesPayload {
+  pathA: string;
+  pathB: string;
+}
+
+export interface MergeRecentFilesResult {
+  document: CsvDocument;
+  sourcePaths: [string, string];
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';

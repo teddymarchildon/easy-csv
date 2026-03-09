@@ -19,12 +19,19 @@ export class RecentFileStore {
     return store.get('recentFiles', []);
   }
 
-  add(path: string): RecentFile[] {
+  find(path: string): RecentFile | undefined {
+    return this.list().find((entry) => entry.path === path);
+  }
+
+  add(path: string, bookmark?: string): RecentFile[] {
+    const previous = this.find(path);
     const existing = this.list().filter((entry) => entry.path !== path);
+    const nextBookmark = bookmark ?? previous?.bookmark;
     const next: RecentFile[] = [
       {
         path,
-        openedAt: new Date().toISOString()
+        openedAt: new Date().toISOString(),
+        ...(nextBookmark ? { bookmark: nextBookmark } : {})
       },
       ...existing
     ].slice(0, MAX_RECENT);

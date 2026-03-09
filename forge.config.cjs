@@ -13,6 +13,40 @@ module.exports = {
     extendInfo: {
       LSMinimumSystemVersion: '12.0',
       CFBundleDisplayName: 'Easy CSV',
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'CSV Document',
+          CFBundleTypeRole: 'Editor',
+          LSHandlerRank: 'Owner',
+          LSItemContentTypes: ['public.comma-separated-values-text'],
+        },
+        {
+          CFBundleTypeName: 'TSV Document',
+          CFBundleTypeRole: 'Editor',
+          LSHandlerRank: 'Owner',
+          LSItemContentTypes: ['public.tab-separated-values-text'],
+        },
+      ],
+      UTImportedTypeDeclarations: [
+        {
+          UTTypeIdentifier: 'public.comma-separated-values-text',
+          UTTypeConformsTo: ['public.delimited-values-text', 'public.plain-text'],
+          UTTypeDescription: 'Comma-separated values text',
+          UTTypeTagSpecification: {
+            'public.filename-extension': ['csv'],
+            'public.mime-type': ['text/csv'],
+          },
+        },
+        {
+          UTTypeIdentifier: 'public.tab-separated-values-text',
+          UTTypeConformsTo: ['public.delimited-values-text', 'public.plain-text'],
+          UTTypeDescription: 'Tab-separated values text',
+          UTTypeTagSpecification: {
+            'public.filename-extension': ['tsv', 'tab'],
+            'public.mime-type': ['text/tab-separated-values'],
+          },
+        },
+      ],
     },
     osxSign: {
       identity: 'Apple Distribution: Teddy Marchildon (55PJ732NTM)',

@@ -22,6 +22,7 @@ const MAX_PANEL_WIDTH = 600;
 
 const App = () => {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [selectedRecentPaths, setSelectedRecentPaths] = useState<string[]>([]);
   const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isPanelResizing, setIsPanelResizing] = useState(false);
@@ -88,6 +89,7 @@ const App = () => {
   const filePath = useGridStore((s) => s.filePath);
   const meta = useGridStore((s) => s.meta);
   const columnProfiles = useGridStore((s) => s.columnProfiles);
+  const openTab = useGridStore((s) => s.openTab);
   const canUndo = useGridStore((s) => s.undoStack.length > 0);
   const canRedo = useGridStore((s) => s.redoStack.length > 0);
   const undoLabel = useGridStore((s) =>
@@ -185,6 +187,9 @@ const App = () => {
   const refreshRecents = useCallback(async () => {
     const files = await window.api.getRecentFiles();
     setRecentFiles(files);
+    setSelectedRecentPaths((current) =>
+      current.filter((path) => files.some((file) => file.path === path))
+    );
   }, []);
 
   // --- Handlers (defined before any useEffect that references them) ---
@@ -198,8 +203,20 @@ const App = () => {
 
   const handleOpenRecent = useCallback(
     async (targetPath: string) => {
-      await openFile(targetPath);
-      refreshRecents();
+      try {
+        await openFile(targetPath);
+        refreshRecents();
+      } catch (error) {
+        setProgress(null);
+        const message = error instanceof Error ? error.message : String(error);
+        const shouldRemove = window.confirm(
+          `Could not open this recent file.\n\n${targetPath}\n\n${message}\n\nRemove it from Recents?`
+        );
+        if (shouldRemove) {
+          await window.api.removeRecentFile(targetPath);
+          refreshRecents();
+        }
+      }
     },
     [openFile, refreshRecents]
   );
@@ -211,6 +228,36 @@ const App = () => {
     },
     [refreshRecents]
   );
+
+  const handleToggleRecentSelection = useCallback((targetPath: string) => {
+    setSelectedRecentPaths((current) => {
+      if (current.includes(targetPath)) {
+        return current.filter((path) => path !== targetPath);
+      }
+
+      if (current.length >= 2) {
+        return current;
+      }
+
+      return [...current, targetPath];
+    });
+  }, []);
+
+  const handleMergeSelectedRecents = useCallback(async () => {
+    if (selectedRecentPaths.length !== 2) {
+      return;
+    }
+
+    const [pathA, pathB] = selectedRecentPaths;
+    try {
+      const result = await window.api.mergeRecentFiles(pathA, pathB);
+      openTab(result.document);
+      setSelectedRecentPaths([]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Could not merge files:\n\n${pathA}\n${pathB}\n\n${message}`);
+    }
+  }, [selectedRecentPaths, openTab]);
 
   const handleSave = useCallback(async () => {
     await save();
@@ -229,8 +276,6 @@ const App = () => {
       refreshRecents();
     }
   }, [saveFilteredAs, openFile, refreshRecents]);
-
-  const openTab = useGridStore((s) => s.openTab);
 
   const handleCreateNewCsv = useCallback(() => {
     const defaultHeaders = ['Column 1', 'Column 2', 'Column 3'];
@@ -533,6 +578,31 @@ const App = () => {
     return () => dispose();
   }, [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, openFilterHelp, openKeyboardHelp]);
 
+  useEffect(() => {
+    const handleOpenRequest = async (targetPath: string) => {
+      try {
+        await openFile(targetPath);
+        refreshRecents();
+      } catch (error) {
+        setProgress(null);
+        const message = error instanceof Error ? error.message : String(error);
+        window.alert(`Could not open file:\n\n${targetPath}\n\n${message}`);
+      }
+    };
+
+    const dispose = window.api.onOpenFileRequest((filePath) => {
+      void handleOpenRequest(filePath);
+    });
+
+    window.api.startOpenFileEvents().then((filePaths) => {
+      filePaths.forEach((filePath) => {
+        void handleOpenRequest(filePath);
+      });
+    });
+
+    return () => dispose();
+  }, [openFile, refreshRecents]);
+
   // Check ALL tabs for unsaved changes before unloading
   useEffect(() => {
     const handleUnload = (event: BeforeUnloadEvent) => {
@@ -546,6 +616,10 @@ const App = () => {
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, []);
+
+  useEffect(() => {
+    window.api.setWindowDirty(dirty);
+  }, [dirty]);
 
   useEffect(() => {
     const handleDragOver = (event: DragEvent) => {
@@ -644,7 +718,10 @@ const App = () => {
         <div className={`panel${panelCollapsed ? ' panel--collapsed' : ''}`}>
           <RecentFilesPanel
             files={recentFiles}
+            selectedPaths={selectedRecentPaths}
             onOpen={handleOpenRecent}
+            onToggleSelect={handleToggleRecentSelection}
+            onMergeSelected={handleMergeSelectedRecents}
             onRemove={handleRemoveRecent}
             emptyState="No recent files yet."
           />

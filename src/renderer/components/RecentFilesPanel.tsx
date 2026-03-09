@@ -2,7 +2,10 @@ import type { RecentFile } from '@shared/types';
 
 interface RecentFilesPanelProps {
   files: RecentFile[];
+  selectedPaths: string[];
   onOpen: (filePath: string) => void;
+  onToggleSelect: (filePath: string) => void;
+  onMergeSelected: () => void;
   onRemove: (filePath: string) => void;
   emptyState: string;
 }
@@ -26,16 +29,63 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
-const RecentFilesPanel = ({ files, onOpen, onRemove, emptyState }: RecentFilesPanelProps) => {
+const RecentFilesPanel = ({
+  files,
+  selectedPaths,
+  onOpen,
+  onToggleSelect,
+  onMergeSelected,
+  onRemove,
+  emptyState
+}: RecentFilesPanelProps) => {
+  const selectedCount = selectedPaths.length;
+
   return (
     <div className="recent-panel">
-      <h3 className="recent-panel__title">Recents</h3>
+      <div className="recent-panel__header">
+        <h3 className="recent-panel__title">Recents</h3>
+        <button
+          className="recent-panel__merge"
+          onClick={onMergeSelected}
+          disabled={selectedCount !== 2}
+          title={selectedCount === 2 ? 'Merge selected CSV files' : 'Select exactly two files to merge'}
+        >
+          Merge 2
+        </button>
+      </div>
       {files.length === 0 && <p className="recent-panel__empty">{emptyState}</p>}
       <ul className="recent-list">
         {files.map((file) => {
           const { folder, fileName } = extractParts(file.path);
+          const isSelected = selectedPaths.includes(file.path);
+          const selectDisabled = !isSelected && selectedCount >= 2;
           return (
-            <li key={file.path} className="recent-list__item">
+            <li
+              key={file.path}
+              className={`recent-list__item${isSelected ? ' recent-list__item--selected' : ''}`}
+            >
+              <button
+                className={`recent-item__select${isSelected ? ' recent-item__select--selected' : ''}`}
+                onClick={() => onToggleSelect(file.path)}
+                disabled={selectDisabled}
+                title={isSelected ? `Deselect ${fileName}` : `Select ${fileName} for merge`}
+                aria-label={isSelected ? `Deselect ${fileName}` : `Select ${fileName} for merge`}
+                aria-pressed={isSelected}
+              >
+                <span className="recent-item__select-box" aria-hidden="true">
+                  {isSelected && (
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path
+                        d="M2 5.2 4 7l4-4"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </span>
+              </button>
               <button
                 className="recent-item"
                 onClick={() => onOpen(file.path)}
@@ -85,4 +135,3 @@ const RecentFilesPanel = ({ files, onOpen, onRemove, emptyState }: RecentFilesPa
 };
 
 export default RecentFilesPanel;
-
