@@ -175,14 +175,80 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const isCurrentSearchMatch = (sourceRowIndex: number, columnIndex: number) =>
     currentSearchMatch?.row === sourceRowIndex && currentSearchMatch?.col === columnIndex;
 
+  const getColumnOffset = useCallback((columnIndex: number) => {
+    let left = rowNumWidth;
+    for (let i = 0; i < columnIndex; i++) {
+      left += columnWidths[i] ?? DEFAULT_COLUMN_WIDTH;
+    }
+    return left;
+  }, [columnWidths, rowNumWidth]);
+
+  const ensureColumnVisible = useCallback((columnIndex: number) => {
+    const container = scrollRef.current;
+    if (!container || columnIndex < 0 || columnIndex >= headers.length) return;
+
+    const left = getColumnOffset(columnIndex);
+    const right = left + (columnWidths[columnIndex] ?? DEFAULT_COLUMN_WIDTH);
+    const viewLeft = container.scrollLeft;
+    const viewRight = viewLeft + container.clientWidth;
+
+    if (left < viewLeft) {
+      container.scrollLeft = left;
+    } else if (right > viewRight) {
+      container.scrollLeft = right - container.clientWidth;
+    }
+
+    handleBodyScroll();
+  }, [columnWidths, getColumnOffset, handleBodyScroll, headers.length]);
+
+  const ensureRowVisible = useCallback((sourceRowIndex: number) => {
+    const filteredIdx = sourceToFilteredIndex.get(sourceRowIndex);
+    const container = scrollRef.current;
+    if (filteredIdx === undefined || !container) return;
+
+    const virtualRow = rowVirtualizerRef.current?.getVirtualItems().find((item) => item.index === filteredIdx);
+    if (!virtualRow) {
+      rowVirtualizerRef.current?.scrollToIndex(filteredIdx);
+      return;
+    }
+
+    const top = virtualRow.start;
+    const bottom = virtualRow.end;
+    const viewTop = container.scrollTop;
+    const viewBottom = viewTop + container.clientHeight;
+
+    if (top < viewTop) {
+      container.scrollTop = top;
+    } else if (bottom > viewBottom) {
+      container.scrollTop = bottom - container.clientHeight;
+    }
+  }, [sourceToFilteredIndex]);
+
   // Scroll to the current search match when it changes
   useEffect(() => {
-    if (!currentSearchMatch || currentSearchMatch.row === -1) return;
+    if (!currentSearchMatch) return;
+
+    if (currentSearchMatch.row === -1) {
+      setSelected({ type: 'header', anchorCol: currentSearchMatch.col, focusCol: currentSearchMatch.col });
+      ensureColumnVisible(currentSearchMatch.col);
+      return;
+    }
+
     const filteredIdx = sourceToFilteredIndex.get(currentSearchMatch.row);
     if (filteredIdx !== undefined) {
       rowVirtualizerRef.current?.scrollToIndex(filteredIdx, { align: 'center' });
     }
-  }, [currentSearchMatch, sourceToFilteredIndex]);
+    setSelected({
+      type: 'cells',
+      range: {
+        anchorRow: currentSearchMatch.row,
+        anchorCol: currentSearchMatch.col,
+        focusRow: currentSearchMatch.row,
+        focusCol: currentSearchMatch.col
+      }
+    });
+    ensureColumnVisible(currentSearchMatch.col);
+  }, [currentSearchMatch, ensureColumnVisible, sourceToFilteredIndex]);
 
   // We need a ref to the virtualizer so the effect above can access it
   const rowVirtualizerRef = useRef<ReturnType<typeof useVirtualizer> | null>(null);
@@ -202,6 +268,18 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   useEffect(() => {
     rowVirtualizerRef.current?.measure();
   }, [wrapText, columnWidths]);
+
+  useEffect(() => {
+    if (!selected) return;
+
+    if (selected.type === 'header') {
+      ensureColumnVisible(selected.focusCol);
+      return;
+    }
+
+    ensureColumnVisible(selected.range.focusCol);
+    ensureRowVisible(selected.range.focusRow);
+  }, [ensureColumnVisible, ensureRowVisible, selected]);
 
   // --- Cell editing ---
   const startEditing = (rowIndex: number, columnIndex: number) => {
@@ -940,6 +1018,36 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
           range: { anchorRow: newRow, anchorCol: newCol, focusRow: newRow, focusCol: newCol }
         });
       }
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+
+      const isBackward = e.shiftKey;
+      const currentFilteredIdx = sourceToFilteredIndex.get(focusRow);
+      if (currentFilteredIdx === undefined) return;
+
+      let nextFilteredIdx = currentFilteredIdx;
+      let nextCol = focusCol + (isBackward ? -1 : 1);
+
+      if (nextCol >= headers.length) {
+        nextCol = 0;
+        nextFilteredIdx += 1;
+      } else if (nextCol < 0) {
+        nextCol = headers.length - 1;
+        nextFilteredIdx -= 1;
+      }
+
+      if (nextFilteredIdx < 0 || nextFilteredIdx >= filteredRows.length) return;
+
+      const nextRow = filteredRows[nextFilteredIdx]?.index;
+      if (nextRow === undefined) return;
+
+      setSelected({
+        type: 'cells',
+        range: { anchorRow: nextRow, anchorCol: nextCol, focusRow: nextRow, focusCol: nextCol }
+      });
       return;
     }
 

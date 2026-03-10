@@ -328,12 +328,26 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.25rem;
+  min-width: 0;
 }
 
 .data-grid__header-text {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.data-grid--wrap-text .data-grid__header-label {
+  align-items: flex-start;
+}
+
+.data-grid--wrap-text .data-grid__header-text {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  text-overflow: clip;
 }
 
 .filter-toggle {
