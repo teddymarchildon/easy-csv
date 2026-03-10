@@ -13,6 +13,7 @@ module.exports = {
     extendInfo: {
       LSMinimumSystemVersion: '12.0',
       CFBundleDisplayName: 'Easy CSV',
+      ITSAppUsesNonExemptEncryption: false,
       CFBundleDocumentTypes: [
         {
           CFBundleTypeName: 'CSV Document',
