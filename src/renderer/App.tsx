@@ -33,7 +33,9 @@ const App = () => {
   const [helpSection, setHelpSection] = useState<HelpDialogSection>('filter');
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findBarReplaceOpen, setFindBarReplaceOpen] = useState(false);
+  const [findBarFocusToken, setFindBarFocusToken] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
+  const [lastSearchTerm, setLastSearchTerm] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   const [wrapText, setWrapText] = useState(false);
@@ -132,6 +134,7 @@ const App = () => {
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchTerm(value);
+    setLastSearchTerm(value);
     setCurrentMatchIndex(0);
   }, []);
 
@@ -144,6 +147,22 @@ const App = () => {
     if (searchMatches.length === 0) return;
     setCurrentMatchIndex((prev) => (prev - 1 + searchMatches.length) % searchMatches.length);
   }, [searchMatches.length]);
+
+  const focusGridAfterSearchNavigation = useCallback(() => {
+    requestAnimationFrame(() => {
+      gridRef.current?.focusGrid();
+    });
+  }, []);
+
+  const handleSearchNextAndFocusGrid = useCallback(() => {
+    handleSearchNext();
+    focusGridAfterSearchNavigation();
+  }, [focusGridAfterSearchNavigation, handleSearchNext]);
+
+  const handleSearchPrevAndFocusGrid = useCallback(() => {
+    handleSearchPrev();
+    focusGridAfterSearchNavigation();
+  }, [focusGridAfterSearchNavigation, handleSearchPrev]);
 
   const handleReplace = useCallback((replaceValue: string) => {
     if (searchMatches.length === 0) return;
@@ -175,6 +194,14 @@ const App = () => {
     setSearchTerm('');
     setCurrentMatchIndex(0);
   }, []);
+
+  const openFindBarAndFocus = useCallback((withReplace = false) => {
+    setFindBarOpen(true);
+    setFindBarReplaceOpen(withReplace);
+    setSearchTerm(lastSearchTerm);
+    setCurrentMatchIndex(0);
+    setFindBarFocusToken((prev) => prev + 1);
+  }, [lastSearchTerm]);
 
   const handleToggleFindReplace = useCallback(() => {
     setFindBarReplaceOpen((prev) => !prev);
@@ -363,11 +390,10 @@ const App = () => {
           break;
         }
         case 'find':
-          setFindBarOpen(true);
+          openFindBarAndFocus(false);
           break;
         case 'find-replace':
-          setFindBarOpen(true);
-          setFindBarReplaceOpen(true);
+          openFindBarAndFocus(true);
           break;
         case 'toggle-sidebar':
           togglePanel();
@@ -406,7 +432,7 @@ const App = () => {
           break;
       }
     },
-    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp]
+    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp, openFindBarAndFocus]
   );
 
   // --- Panel resize drag logic ---
@@ -453,7 +479,7 @@ const App = () => {
 
       if (mod && e.key === 'f') {
         e.preventDefault();
-        setFindBarOpen(true);
+        openFindBarAndFocus(false);
       }
       if (mod && e.key === 'b') {
         e.preventDefault();
@@ -512,7 +538,7 @@ const App = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, handleCloseTab, handleSaveFilteredAs]);
+  }, [undo, redo, handleCloseTab, handleSaveFilteredAs, openFindBarAndFocus]);
 
   // --- Effects ---
 
@@ -678,6 +704,9 @@ const App = () => {
         onBeginBatch={beginBatch}
         onCommitBatch={commitBatch}
         onOpenFilterHelp={openFilterHelp}
+        onSearchNext={handleSearchNextAndFocusGrid}
+        onSearchPrev={handleSearchPrevAndFocusGrid}
+        onSearchClose={handleFindBarClose}
         searchTerm={searchTerm}
         searchMatches={searchMatches}
         currentSearchMatch={currentSearch}
@@ -834,12 +863,13 @@ const App = () => {
       <StatusBar meta={meta} dirty={dirty} progress={progress} columnProfiles={columnProfiles} />
       <FindBar
         open={findBarOpen}
+        focusToken={findBarFocusToken}
         searchTerm={searchTerm}
         onSearchChange={handleSearchChange}
         matchCount={searchMatches.length}
         currentMatch={currentMatchIndex}
-        onNext={handleSearchNext}
-        onPrev={handleSearchPrev}
+        onNext={handleSearchNextAndFocusGrid}
+        onPrev={handleSearchPrevAndFocusGrid}
         onClose={handleFindBarClose}
         onReplace={handleReplace}
         onReplaceAll={handleReplaceAll}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 interface FindBarProps {
   open: boolean;
+  focusToken: number;
   searchTerm: string;
   onSearchChange: (value: string) => void;
   matchCount: number;
@@ -48,6 +49,7 @@ const IconToggleExpand = ({ expanded }: { expanded: boolean }) => (
 
 const FindBar = ({
   open,
+  focusToken,
   searchTerm,
   onSearchChange,
   matchCount,
@@ -73,7 +75,7 @@ const FindBar = ({
     } else {
       setReplaceValue('');
     }
-  }, [open]);
+  }, [open, focusToken]);
 
   if (!open) return null;
 

@@ -26,6 +26,9 @@ interface DataGridProps {
   onBeginBatch: (label: string) => void;
   onCommitBatch: () => void;
   onOpenFilterHelp: () => void;
+  onSearchNext?: () => void;
+  onSearchPrev?: () => void;
+  onSearchClose?: () => void;
   searchTerm?: string;
   searchMatches?: SearchMatch[];
   currentSearchMatch?: SearchMatch | null;
@@ -54,13 +57,14 @@ type Selection =
 
 export interface DataGridHandle {
   selectAll: () => void;
+  focusGrid: () => void;
 }
 
 const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
 const FILTER_HELP_DISMISSED_KEY = 'sheetEditor.filterHelpDismissed';
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -97,6 +101,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
           }
         });
       }
+    },
+    focusGrid: () => {
+      gridRef.current?.focus();
     }
   }), [rows.length, headers.length]);
 
@@ -174,6 +181,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
 
   const isCurrentSearchMatch = (sourceRowIndex: number, columnIndex: number) =>
     currentSearchMatch?.row === sourceRowIndex && currentSearchMatch?.col === columnIndex;
+  const searchSelectionRef = useRef(false);
 
   const getColumnOffset = useCallback((columnIndex: number) => {
     let left = rowNumWidth;
@@ -226,10 +234,17 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
 
   // Scroll to the current search match when it changes
   useEffect(() => {
-    if (!currentSearchMatch) return;
+    if (!currentSearchMatch) {
+      if (searchSelectionRef.current && searchTerm && (searchMatches?.length ?? 0) === 0) {
+        setSelected(null);
+        searchSelectionRef.current = false;
+      }
+      return;
+    }
 
     if (currentSearchMatch.row === -1) {
       setSelected({ type: 'header', anchorCol: currentSearchMatch.col, focusCol: currentSearchMatch.col });
+      searchSelectionRef.current = true;
       ensureColumnVisible(currentSearchMatch.col);
       return;
     }
@@ -247,8 +262,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
         focusCol: currentSearchMatch.col
       }
     });
+    searchSelectionRef.current = true;
     ensureColumnVisible(currentSearchMatch.col);
-  }, [currentSearchMatch, ensureColumnVisible, sourceToFilteredIndex]);
+  }, [currentSearchMatch, ensureColumnVisible, searchMatches, searchTerm, sourceToFilteredIndex]);
 
   // We need a ref to the virtualizer so the effect above can access it
   const rowVirtualizerRef = useRef<ReturnType<typeof useVirtualizer> | null>(null);
@@ -841,6 +857,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     if (editing || editingHeader !== null) return;
 
     const isMeta = e.metaKey || e.ctrlKey;
+    const hasActiveSearch = Boolean(searchTerm && (searchMatches?.length ?? 0) > 0);
 
     if (isMeta && e.key === 'c') {
       e.preventDefault();
@@ -857,6 +874,22 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     if (isMeta && e.key === 'x') {
       e.preventDefault();
       handleCut();
+      return;
+    }
+
+    if (hasActiveSearch && e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        onSearchPrev?.();
+      } else {
+        onSearchNext?.();
+      }
+      return;
+    }
+
+    if (hasActiveSearch && e.key === 'Escape') {
+      e.preventDefault();
+      onSearchClose?.();
       return;
     }
 
