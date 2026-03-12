@@ -1,6 +1,6 @@
 appId: com.easysheet.app
-productName: Easy CSV
-copyright: "Copyright © 2026 Easy CSV. All rights reserved."
+productName: Rowly
+copyright: "Copyright © 2026 Rowly. All rights reserved."
 
 directories:
   output: release

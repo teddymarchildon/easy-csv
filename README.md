@@ -1,8 +1,8 @@
-# Easy CSV
+# Rowly
 
 **A simple, fast macOS CSV editor for people who work with data every day.**
 
-CSV files are everywhere — exports from databases, analytics platforms, CRMs, financial systems — yet the tools for editing them range from sluggish (Excel) to hostile (Numbers). Easy CSV fills the gap: a purpose-built desktop app that opens instantly, handles large files without freezing, and feels like it belongs on your Mac.
+CSV files are everywhere — exports from databases, analytics platforms, CRMs, financial systems — yet the tools for editing them range from sluggish (Excel) to hostile (Numbers). Rowly fills the gap: a purpose-built desktop app that opens instantly, handles large files without freezing, and feels like it belongs on your Mac.
 
 ---
 
@@ -18,7 +18,7 @@ The market lacks a lightweight, privacy-respecting, keyboard-driven CSV editor t
 
 ## The Solution
 
-Easy CSV is a native macOS desktop application designed for a single job: making CSV editing fast, reliable, and pleasant. No account required. No cloud uploads. Your data never leaves your machine.
+Rowly is a native macOS desktop application designed for a single job: making CSV editing fast, reliable, and pleasant. No account required. No cloud uploads. Your data never leaves your machine.
 
 ### Core Design Principles
 
@@ -26,7 +26,7 @@ Easy CSV is a native macOS desktop application designed for a single job: making
 
 2. **Keyboard-first, mouse-friendly.** Every action is reachable via keyboard shortcuts. Arrow keys navigate cells, Enter edits in place, Cmd+K opens a command palette. But nothing requires memorization — every action is also available through menus and toolbars.
 
-3. **Data integrity by default.** Easy CSV reads and writes plain text. No proprietary formats, no formula evaluation, no silent type coercion. What you see is exactly what gets saved.
+3. **Data integrity by default.** Rowly reads and writes plain text. No proprietary formats, no formula evaluation, no silent type coercion. What you see is exactly what gets saved.
 
 4. **Native Mac experience.** Hidden titlebar with inset traffic lights, system theme integration, standard macOS menu bar, and familiar shortcuts (Cmd+S, Cmd+Z, Cmd+W). It feels like it shipped with the OS.
 
@@ -196,7 +196,7 @@ The foundation is solid — what follows is guided by real usage patterns and us
 
 ## Security Model
 
-Easy CSV follows Electron security best practices:
+Rowly follows Electron security best practices:
 
 - **Context isolation** enabled — renderer code cannot access Node.js APIs directly.
 - **Node integration** disabled in the renderer process.

@@ -20,7 +20,7 @@ let bypassCloseConfirm = false;
 const pendingOpenFiles: string[] = [];
 let openFileEventsReady = false;
 
-app.setName('Easy CSV');
+app.setName('Rowly');
 app.setAppUserModelId('com.easysheet.app');
 
 const recents = new RecentFileStore();

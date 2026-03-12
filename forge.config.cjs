@@ -6,13 +6,13 @@ const path = require('path');
 module.exports = {
   outDir: 'forge-out',
   packagerConfig: {
-    name: 'Easy CSV',
+    name: 'Rowly',
     asar: true,
     icon: './icon',
     appBundleId: 'com.teddymarchildon.easycsv',
     extendInfo: {
       LSMinimumSystemVersion: '12.0',
-      CFBundleDisplayName: 'Easy CSV',
+      CFBundleDisplayName: 'Rowly',
       ITSAppUsesNonExemptEncryption: false,
       CFBundleDocumentTypes: [
         {

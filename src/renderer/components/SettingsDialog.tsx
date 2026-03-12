@@ -77,7 +77,7 @@ const SettingsDialog = ({ open, onClose, themeMode, onThemeChange }: SettingsDia
         <div className="settings-dialog__body">
           <p className="settings-section__label">Appearance</p>
           <p className="settings-section__description">
-            Choose how Easy CSV looks. Select a theme or sync with your system setting.
+            Choose how Rowly looks. Select a theme or sync with your system setting.
           </p>
           <div className="theme-picker">
             {themes.map(({ mode, label, icon }) => (

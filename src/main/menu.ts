@@ -120,7 +120,7 @@ export const buildAppMenu = ({ getMainWindow, reopenMainWindow }: BuildAppMenuOp
       role: 'help',
       submenu: [
         {
-          label: 'Easy CSV Help',
+          label: 'Rowly Help',
           accelerator: 'CmdOrCtrl+/',
           click: () => {
             sendMenuAction('help-filter-language');

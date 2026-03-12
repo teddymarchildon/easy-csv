@@ -1,6 +1,6 @@
 {
   "name": "easy-sheet",
-  "productName": "Easy CSV",
+  "productName": "Rowly",
   "version": "0.4.5",
   "description": "Lightweight macOS CSV editor built with Electron + React",
   "private": true,
@@ -12,7 +12,7 @@
     "preview": "electron-vite preview",
     "lint": "eslint . --ext .ts,.tsx",
     "check-types": "tsc --noEmit",
-    "postinstall": "if [ -d node_modules/electron/dist/Electron.app ]; then plutil -replace CFBundleName -string 'Easy CSV' node_modules/electron/dist/Electron.app/Contents/Info.plist && plutil -replace CFBundleDisplayName -string 'Easy CSV' node_modules/electron/dist/Electron.app/Contents/Info.plist; fi",
+    "postinstall": "if [ -d node_modules/electron/dist/Electron.app ]; then plutil -replace CFBundleName -string 'Rowly' node_modules/electron/dist/Electron.app/Contents/Info.plist && plutil -replace CFBundleDisplayName -string 'Rowly' node_modules/electron/dist/Electron.app/Contents/Info.plist; fi",
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make --platform=mas"
