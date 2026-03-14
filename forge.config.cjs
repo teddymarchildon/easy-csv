@@ -12,6 +12,7 @@ module.exports = {
     appBundleId: 'com.teddymarchildon.easycsv',
     extendInfo: {
       LSMinimumSystemVersion: '12.0',
+      CFBundleName: 'Rowly',
       CFBundleDisplayName: 'Rowly',
       ITSAppUsesNonExemptEncryption: false,
       CFBundleDocumentTypes: [

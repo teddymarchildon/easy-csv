@@ -26,6 +26,27 @@ const parseDate = (value: string): number | null => {
   return Number.isNaN(parsed) ? null : parsed;
 };
 
+const getMinMax = (values: number[]): { min: number; max: number } | null => {
+  if (!values.length) {
+    return null;
+  }
+
+  let min = values[0];
+  let max = values[0];
+
+  for (let index = 1; index < values.length; index += 1) {
+    const value = values[index];
+    if (value < min) {
+      min = value;
+    }
+    if (value > max) {
+      max = value;
+    }
+  }
+
+  return { min, max };
+};
+
 const pickInferredType = (
   nonNullCount: number,
   parseableCount: { number: number; date: number; boolean: number }
@@ -114,19 +135,25 @@ export const inferColumnProfiles = (headers: string[], rows: CellValue[][]): Col
 
     if (inferredType === 'number' && numericValues.length) {
       const sum = numericValues.reduce((acc, val) => acc + val, 0);
+      const range = getMinMax(numericValues);
+      if (!range) {
+        return profile;
+      }
       profile.numericStats = {
-        min: Math.min(...numericValues),
-        max: Math.max(...numericValues),
+        min: range.min,
+        max: range.max,
         mean: sum / numericValues.length
       };
     }
 
     if (inferredType === 'date' && dateValues.length) {
-      const min = Math.min(...dateValues);
-      const max = Math.max(...dateValues);
+      const range = getMinMax(dateValues);
+      if (!range) {
+        return profile;
+      }
       profile.dateStats = {
-        minIso: new Date(min).toISOString(),
-        maxIso: new Date(max).toISOString()
+        minIso: new Date(range.min).toISOString(),
+        maxIso: new Date(range.max).toISOString()
       };
     }
 
