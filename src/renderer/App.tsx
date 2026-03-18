@@ -15,6 +15,7 @@ import type { HelpDialogSection } from './components/HelpDialog';
 import StatusBar from './components/StatusBar';
 import { useGridStore } from './state/gridStore';
 import { useFileHandlers } from './hooks/useFileHandlers';
+import { buildFilteredRowEntries } from './state/filtering';
 
 const DEFAULT_PANEL_WIDTH = 280;
 const MIN_PANEL_WIDTH = 140;
@@ -122,6 +123,11 @@ const App = () => {
     }
     return matches;
   }, [searchTerm, headers, rows]);
+
+  const filteredRowCount = useMemo(
+    () => buildFilteredRowEntries(rows, filters, columnProfiles).length,
+    [rows, filters, columnProfiles]
+  );
 
   // Clamp current match index when matches change
   useEffect(() => {
@@ -860,7 +866,7 @@ const App = () => {
         onThemeChange={handleThemeChange}
       />
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} section={helpSection} />
-      <StatusBar meta={meta} dirty={dirty} progress={progress} columnProfiles={columnProfiles} />
+      <StatusBar meta={meta} dirty={dirty} progress={progress} filteredRowCount={filteredRowCount} />
       <FindBar
         open={findBarOpen}
         focusToken={findBarFocusToken}
