@@ -39,6 +39,7 @@ interface TabSnapshot {
   dirty: boolean;
   meta: { rowCount: number; columnCount: number };
   columnProfiles: ColumnProfile[];
+  columnWidths: Record<number, number>;
   filters: Record<number, string>;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -65,6 +66,7 @@ interface GridState extends Snapshot {
   dirty: boolean;
   meta: CsvDocument['meta'];
   columnProfiles: ColumnProfile[];
+  columnWidths: Record<number, number>;
   filters: Record<number, string>;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -101,6 +103,7 @@ interface GridState extends Snapshot {
   moveColumns: (fromStart: number, fromEnd: number, toIndex: number) => void;
   updateHeader: (columnIndex: number, value: string) => void;
   replaceAll: (term: string, replacement: string, matches: { row: number; col: number }[]) => void;
+  setColumnWidth: (columnIndex: number, width: number) => void;
   setFilter: (columnIndex: number, value: string) => void;
   hasActiveFilters: () => boolean;
   getFilteredRows: () => CellValue[][];
@@ -146,6 +149,7 @@ const captureActiveTab = (state: GridState): TabSnapshot => ({
   dirty: state.dirty,
   meta: { ...state.meta },
   columnProfiles: [...state.columnProfiles],
+  columnWidths: { ...state.columnWidths },
   filters: { ...state.filters },
   undoStack: [...state.undoStack],
   redoStack: [...state.redoStack],
@@ -166,6 +170,7 @@ const restoreFromTabSnapshot = (
   dirty: snap.dirty,
   meta: snap.meta,
   columnProfiles: snap.columnProfiles,
+  columnWidths: snap.columnWidths,
   filters: snap.filters,
   undoStack: snap.undoStack,
   redoStack: snap.redoStack,
@@ -173,6 +178,52 @@ const restoreFromTabSnapshot = (
   _batchLabel: snap._batchLabel,
   _batchSnapshot: snap._batchSnapshot
 });
+
+const shiftColumnWidthsForInsert = (
+  columnWidths: Record<number, number>,
+  insertIndex: number
+): Record<number, number> => {
+  const next: Record<number, number> = {};
+  for (const [key, width] of Object.entries(columnWidths)) {
+    const index = Number(key);
+    next[index >= insertIndex ? index + 1 : index] = width;
+  }
+  return next;
+};
+
+const shiftColumnWidthsForRemoval = (
+  columnWidths: Record<number, number>,
+  removedIndex: number
+): Record<number, number> => {
+  const next: Record<number, number> = {};
+  for (const [key, width] of Object.entries(columnWidths)) {
+    const index = Number(key);
+    if (index === removedIndex) continue;
+    next[index > removedIndex ? index - 1 : index] = width;
+  }
+  return next;
+};
+
+const moveColumnWidths = (
+  columnWidths: Record<number, number>,
+  fromStart: number,
+  fromEnd: number,
+  toIndex: number
+): Record<number, number> => {
+  const count = fromEnd - fromStart + 1;
+  const highestIndex = Math.max(-1, ...Object.keys(columnWidths).map(Number));
+  const orderedWidths = Array.from({ length: highestIndex + 1 }, (_, index) => columnWidths[index]);
+  const moved = orderedWidths.splice(fromStart, count);
+  const insertAt = toIndex > fromStart ? toIndex - count : toIndex;
+  orderedWidths.splice(insertAt, 0, ...moved);
+
+  return orderedWidths.reduce<Record<number, number>>((acc, width, index) => {
+    if (width !== undefined) {
+      acc[index] = width;
+    }
+    return acc;
+  }, {});
+};
 
 // ---------------------------------------------------------------------------
 // Store
@@ -264,6 +315,7 @@ export const useGridStore = create<GridState>()((set, get) => {
     dirty: false,
     meta: { rowCount: 0, columnCount: 0 },
     columnProfiles: [],
+    columnWidths: {},
     filters: {},
     undoStack: [],
     redoStack: [],
@@ -315,6 +367,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           dirty: false,
           meta: doc.meta,
           columnProfiles: inferColumnProfiles(doc.headers, doc.rows),
+          columnWidths: {},
           filters: {},
           undoStack: [],
           redoStack: [],
@@ -378,6 +431,7 @@ export const useGridStore = create<GridState>()((set, get) => {
               dirty: false,
               meta: { rowCount: 0, columnCount: 0 },
               columnProfiles: [],
+              columnWidths: {},
               filters: {},
               undoStack: [],
               redoStack: [],
@@ -436,6 +490,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           dirty: false,
           meta: { rowCount: 0, columnCount: 0 },
           columnProfiles: [],
+          columnWidths: {},
           filters: {},
           undoStack: [],
           redoStack: [],
@@ -477,6 +532,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         newline: doc.newline,
         filePath: doc.filePath ?? null,
         dirty: false,
+        columnWidths: {},
         filters: {},
         undoStack: [],
         redoStack: [],
@@ -542,6 +598,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           newRow.splice(columnIndex, 0, '');
           return newRow;
         });
+        draft.columnWidths = shiftColumnWidthsForInsert(draft.columnWidths, columnIndex);
       });
     },
 
@@ -555,6 +612,7 @@ export const useGridStore = create<GridState>()((set, get) => {
       applyMutation('Delete Column', (draft) => {
         draft.headers.splice(columnIndex, 1);
         draft.rows = draft.rows.map((row) => row.filter((_, idx) => idx !== columnIndex));
+        draft.columnWidths = shiftColumnWidthsForRemoval(draft.columnWidths, columnIndex);
       });
     },
 
@@ -582,6 +640,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           row.splice(insertAt, 0, ...extracted);
           return row;
         });
+        draft.columnWidths = moveColumnWidths(draft.columnWidths, fromStart, fromEnd, toIndex);
       });
     },
 
@@ -616,6 +675,15 @@ export const useGridStore = create<GridState>()((set, get) => {
     // Non-undoable actions
     // =====================================================================
 
+    setColumnWidth: (columnIndex, width) =>
+      set((state) => ({
+        ...state,
+        columnWidths: {
+          ...state.columnWidths,
+          [columnIndex]: width
+        }
+      })),
+
     setFilter: (columnIndex, value) =>
       set((state) => ({
         ...state,
@@ -641,6 +709,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         dirty: false,
         meta: { rowCount: 0, columnCount: 0 },
         columnProfiles: [],
+        columnWidths: {},
         filters: {},
         undoStack: [],
         redoStack: [],

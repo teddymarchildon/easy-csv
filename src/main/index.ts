@@ -59,13 +59,87 @@ const enqueueOpenFile = (filePath: string) => {
   pendingOpenFiles.push(filePath);
 };
 
-const emitOpenFileRequest = (filePath: string) => {
+const isMacPermissionError = (error: unknown) =>
+  process.platform === 'darwin' &&
+  error instanceof Error &&
+  (error.message.includes('EPERM') || error.message.includes('operation not permitted'));
+
+const promptToReauthorizeFile = async (filePath: string) => {
+  if (!mainWindow || process.platform !== 'darwin') {
+    return null;
+  }
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Allow Rowly to Reopen This File',
+    message: 'macOS requires permission to reopen this file from Recents.',
+    defaultPath: filePath,
+    buttonLabel: 'Allow Access',
+    properties: ['openFile'],
+    filters: [{ name: 'CSV', extensions: ['csv', 'tsv'] }],
+    securityScopedBookmarks: true
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const selectedPath = result.filePaths[0];
+  const bookmark = Array.isArray((result as { bookmarks?: string[] }).bookmarks)
+    ? (result as { bookmarks?: string[] }).bookmarks?.[0]
+    : undefined;
+
+  return { filePath: selectedPath, bookmark };
+};
+
+const openFileFromPath = async (filePath: string) => {
+  const bookmark = recents.find(filePath)?.bookmark;
+
+  try {
+    return await fileManager.open(filePath, { bookmark });
+  } catch (error) {
+    if (!isMacPermissionError(error)) {
+      throw error;
+    }
+
+    const reauthorized = await promptToReauthorizeFile(filePath);
+    if (!reauthorized) {
+      throw error;
+    }
+
+    if (reauthorized.filePath !== filePath) {
+      recents.remove(filePath);
+    }
+
+    return fileManager.open(reauthorized.filePath, { bookmark: reauthorized.bookmark });
+  }
+};
+
+const openRecentFilesForMerge = async (pathA: string, pathB: string) => {
+  const [documentA, documentB] = await Promise.all([openFileFromPath(pathA), openFileFromPath(pathB)]);
+  return fileManager.mergeDocuments(documentA, documentB, [pathA, pathB]);
+};
+
+const flushPendingOpenFiles = () => {
   if (!mainWindow || mainWindow.isDestroyed() || !openFileEventsReady) {
-    enqueueOpenFile(filePath);
     return;
   }
 
-  mainWindow.webContents.send('file:open-request', filePath);
+  const filePaths = pendingOpenFiles.splice(0, pendingOpenFiles.length);
+  filePaths.forEach((filePath) => {
+    mainWindow?.webContents.send('file:open-request', filePath);
+  });
+};
+
+const handleOpenFileRequest = async (filePath: string) => {
+  enqueueOpenFile(filePath);
+
+  // Finder can send open-file before Electron is ready on cold launch.
+  if (!app.isReady()) {
+    return;
+  }
+
+  await restoreMainWindow();
+  flushPendingOpenFiles();
 };
 
 const createWindow = async () => {
@@ -184,7 +258,11 @@ app.whenReady().then(() => {
     });
   });
 
-  createWindow().catch((error) => logger.error(error));
+  createWindow()
+    .then(() => {
+      flushPendingOpenFiles();
+    })
+    .catch((error) => logger.error(error));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -195,11 +273,7 @@ app.whenReady().then(() => {
 
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  restoreMainWindow()
-    .then(() => {
-      emitOpenFileRequest(filePath);
-    })
-    .catch((error) => logger.error(error));
+  handleOpenFileRequest(filePath).catch((error) => logger.error(error));
 });
 
 ipcMain.handle('dialog:open-file', async () => {
@@ -249,17 +323,11 @@ ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
 });
 
 ipcMain.handle('file:load', async (_event, filePath: string) => {
-  const bookmark = recents.find(filePath)?.bookmark;
-  return fileManager.open(filePath, { bookmark });
+  return openFileFromPath(filePath);
 });
 
 ipcMain.handle('file:merge-recents', async (_event, payload: MergeRecentFilesPayload) => {
-  const bookmarkA = recents.find(payload.pathA)?.bookmark;
-  const bookmarkB = recents.find(payload.pathB)?.bookmark;
-  return fileManager.mergeRecentFiles(payload.pathA, payload.pathB, {
-    bookmarkA,
-    bookmarkB
-  });
+  return openRecentFilesForMerge(payload.pathA, payload.pathB);
 });
 
 ipcMain.handle('app:start-open-file-events', () => {

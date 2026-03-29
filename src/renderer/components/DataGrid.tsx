@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CellValue, ColumnProfile } from '@shared/types';
 import classNames from 'classnames';
 import { buildFilteredRowEntries } from '../state/filtering';
+import { useGridStore } from '../state/gridStore';
 
 export interface SearchMatch {
   row: number;  // -1 for header match
@@ -72,7 +73,6 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const [editingHeader, setEditingHeader] = useState<number | null>(null);
   const [draftValue, setDraftValue] = useState('');
   const [selected, setSelected] = useState<Selection>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<number, number>>({});
   const [isResizing, setIsResizing] = useState(false);
   const [openFilters, setOpenFilters] = useState<Set<number>>(new Set());
   const [showFilterHelpHint, setShowFilterHelpHint] = useState(() => {
@@ -87,6 +87,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const dragSelectionRef = useRef<{ anchorRow: number; anchorCol: number; moved: boolean } | null>(null);
   const suppressNextClickRef = useRef(false);
   const mouseDownCellRef = useRef<{ row: number; col: number; wasSingleSelected: boolean } | null>(null);
+  const columnWidths = useGridStore((s) => s.columnWidths);
+  const setColumnWidth = useGridStore((s) => s.setColumnWidth);
 
   useImperativeHandle(ref, () => ({
     selectAll: () => {
@@ -106,12 +108,6 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       gridRef.current?.focus();
     }
   }), [rows.length, headers.length]);
-
-  // Reset column widths when headers change (new file loaded)
-  const headerKey = headers.join('\0');
-  useEffect(() => {
-    setColumnWidths({});
-  }, [headerKey]);
 
   const gridTemplateColumns = useMemo(
     () => headers.map((_, i) => `${columnWidths[i] ?? DEFAULT_COLUMN_WIDTH}px`).join(' '),
@@ -1156,8 +1152,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     const { colIndex, startX, startWidth } = resizeRef.current;
     const delta = e.clientX - startX;
     const newWidth = Math.max(MIN_COLUMN_WIDTH, startWidth + delta);
-    setColumnWidths((prev) => ({ ...prev, [colIndex]: newWidth }));
-  }, []);
+    setColumnWidth(colIndex, newWidth);
+  }, [setColumnWidth]);
 
   const handleResizeMouseUp = useCallback(() => {
     resizeRef.current = null;
@@ -1209,9 +1205,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
 
       // Add padding (0.5rem each side ~16px) + buffer
       const newWidth = Math.max(MIN_COLUMN_WIDTH, Math.ceil(maxWidth) + 32);
-      setColumnWidths((prev) => ({ ...prev, [colIndex]: newWidth }));
+      setColumnWidth(colIndex, newWidth);
     },
-    [headers, rows]
+    [headers, rows, setColumnWidth]
   );
 
   // Cleanup listeners on unmount

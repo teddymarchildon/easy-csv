@@ -73,6 +73,22 @@ export class FileManager {
       parseCsv(filePathB, this.onProgress)
     );
 
+    return this.buildMergedDocument(parsedA, parsedB, [filePathA, filePathB]);
+  }
+
+  mergeDocuments(
+    documentA: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
+    documentB: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
+    sourcePaths: [string, string]
+  ): MergeRecentFilesResult {
+    return this.buildMergedDocument(documentA, documentB, sourcePaths);
+  }
+
+  private buildMergedDocument(
+    parsedA: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
+    parsedB: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
+    sourcePaths: [string, string]
+  ): MergeRecentFilesResult {
     const headers = [...parsedA.headers];
     for (const header of parsedB.headers) {
       if (!headers.includes(header)) {
@@ -112,11 +128,11 @@ export class FileManager {
       }
     };
 
-    logger.info(`Merged recent CSV files: ${filePathA} + ${filePathB}`);
+    logger.info(`Merged recent CSV files: ${sourcePaths[0]} + ${sourcePaths[1]}`);
 
     return {
       document,
-      sourcePaths: [filePathA, filePathB]
+      sourcePaths
     };
   }
 
