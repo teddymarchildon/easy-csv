@@ -39,10 +39,26 @@ export class RecentFileStore {
     return next;
   }
 
+  replace(oldPath: string, nextPath: string, bookmark?: string): RecentFile[] {
+    const previous = this.find(oldPath);
+    const openedAt = new Date().toISOString();
+    const existing = this.list().filter((entry) => entry.path !== oldPath && entry.path !== nextPath);
+    const nextBookmark = bookmark ?? previous?.bookmark;
+    const next: RecentFile[] = [
+      {
+        path: nextPath,
+        openedAt,
+        ...(nextBookmark ? { bookmark: nextBookmark } : {})
+      },
+      ...existing
+    ].slice(0, MAX_RECENT);
+    store.set('recentFiles', next);
+    return next;
+  }
+
   remove(path: string): RecentFile[] {
     const next = this.list().filter((entry) => entry.path !== path);
     store.set('recentFiles', next);
     return next;
   }
 }
-

@@ -16,6 +16,7 @@ import StatusBar from './components/StatusBar';
 import { useGridStore } from './state/gridStore';
 import { useFileHandlers } from './hooks/useFileHandlers';
 import { buildFilteredRowEntries } from './state/filtering';
+import type { SortDirection } from './state/sorting';
 
 const DEFAULT_PANEL_WIDTH = 280;
 const MIN_PANEL_WIDTH = 140;
@@ -40,6 +41,7 @@ const App = () => {
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   const [wrapText, setWrapText] = useState(false);
+  const [activeColumnIndex, setActiveColumnIndex] = useState<number | null>(null);
   const panelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const gridRef = useRef<DataGridHandle>(null);
   const prevHasDataRef = useRef(false);
@@ -72,7 +74,11 @@ const App = () => {
   const headers = useGridStore((s) => s.headers);
   const rows = useGridStore((s) => s.rows);
   const filters = useGridStore((s) => s.filters);
+  const sorts = useGridStore((s) => s.sorts);
   const setFilter = useGridStore((s) => s.setFilter);
+  const setSort = useGridStore((s) => s.setSort);
+  const clearSort = useGridStore((s) => s.clearSort);
+  const clearAllSorts = useGridStore((s) => s.clearAllSorts);
   const updateCell = useGridStore((s) => s.updateCell);
   const updateHeader = useGridStore((s) => s.updateHeader);
   const addRow = useGridStore((s) => s.addRow);
@@ -101,6 +107,16 @@ const App = () => {
   const redoLabel = useGridStore((s) =>
     s.redoStack.length ? s.redoStack[s.redoStack.length - 1].label : undefined
   );
+
+  const applySortToActiveColumn = useCallback((direction: SortDirection) => {
+    if (activeColumnIndex === null || activeColumnIndex >= headers.length) return;
+    setSort(activeColumnIndex, direction);
+  }, [activeColumnIndex, headers.length, setSort]);
+
+  const clearActiveSort = useCallback(() => {
+    if (activeColumnIndex === null || activeColumnIndex >= headers.length) return;
+    clearSort(activeColumnIndex);
+  }, [activeColumnIndex, headers.length, clearSort]);
 
   // --- Find / search matches ---
   const searchMatches = useMemo(() => {
@@ -221,7 +237,7 @@ const App = () => {
     const files = await window.api.getRecentFiles();
     setRecentFiles(files);
     setSelectedRecentPaths((current) =>
-      current.filter((path) => files.some((file) => file.path === path))
+      current.filter((path) => files.some((file) => file.path === path && file.status !== 'missing'))
     );
   }, []);
 
@@ -237,7 +253,7 @@ const App = () => {
   const handleOpenRecent = useCallback(
     async (targetPath: string) => {
       try {
-        await openFile(targetPath);
+        await window.api.openRecentFile(targetPath);
         refreshRecents();
       } catch (error) {
         setProgress(null);
@@ -252,6 +268,21 @@ const App = () => {
       }
     },
     [openFile, refreshRecents]
+  );
+
+  const handleLocateRecent = useCallback(
+    async (targetPath: string) => {
+      const result = await window.api.locateRecentFile(targetPath);
+      if (!result) {
+        return;
+      }
+
+      setRecentFiles(result);
+      setSelectedRecentPaths((current) =>
+        current.filter((path) => result.some((file) => file.path === path && file.status !== 'missing'))
+      );
+    },
+    []
   );
 
   const handleRemoveRecent = useCallback(
@@ -361,6 +392,10 @@ const App = () => {
       { id: 'toggle-sidebar', label: panelCollapsed ? 'Show Recents' : 'Hide Recents', shortcut: '⌘B', section: 'View' },
       { id: 'add-row', label: 'Add Row', section: 'Edit' },
       { id: 'add-column', label: 'Add Column', section: 'Edit' },
+      { id: 'sort-ascending', label: 'Sort Ascending', section: 'Edit' },
+      { id: 'sort-descending', label: 'Sort Descending', section: 'Edit' },
+      { id: 'clear-sort', label: 'Clear Sort', section: 'Edit' },
+      { id: 'clear-all-sorts', label: 'Clear All Sorts', section: 'Edit' },
       { id: 'undo', label: undoLabel ? `Undo: ${undoLabel}` : 'Undo', shortcut: '⌘Z', section: 'Edit' },
       { id: 'redo', label: redoLabel ? `Redo: ${redoLabel}` : 'Redo', shortcut: '⇧⌘Z', section: 'Edit' },
       { id: 'copy-all', label: 'Copy All to Clipboard', section: 'Edit' },
@@ -410,6 +445,18 @@ const App = () => {
         case 'add-column':
           addColumn();
           break;
+        case 'sort-ascending':
+          applySortToActiveColumn('asc');
+          break;
+        case 'sort-descending':
+          applySortToActiveColumn('desc');
+          break;
+        case 'clear-sort':
+          clearActiveSort();
+          break;
+        case 'clear-all-sorts':
+          clearAllSorts();
+          break;
         case 'undo':
           undo();
           break;
@@ -438,7 +485,7 @@ const App = () => {
           break;
       }
     },
-    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp, openFindBarAndFocus]
+    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, applySortToActiveColumn, clearActiveSort, clearAllSorts, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp, openFindBarAndFocus]
   );
 
   // --- Panel resize drag logic ---
@@ -698,7 +745,11 @@ const App = () => {
         rows={rows}
         columnProfiles={columnProfiles}
         filters={filters}
+        sorts={sorts}
         onFilterChange={setFilter}
+        onSetSort={setSort}
+        onClearSort={clearSort}
+        onClearAllSorts={clearAllSorts}
         onEditCell={updateCell}
         onEditHeader={updateHeader}
         onInsertRowAt={insertRowAt}
@@ -717,9 +768,10 @@ const App = () => {
         searchMatches={searchMatches}
         currentSearchMatch={currentSearch}
         wrapText={wrapText}
+        onActiveColumnChange={setActiveColumnIndex}
       />
     );
-  }, [headers, rows, columnProfiles, filters, setFilter, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText, openFilterHelp]);
+  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText, openFilterHelp]);
 
   return (
     <div className="app-shell">
@@ -751,13 +803,14 @@ const App = () => {
         style={{ gridTemplateColumns: panelCollapsed ? '0px 1fr' : `${panelWidth}px 1fr` }}
       >
         <div className={`panel${panelCollapsed ? ' panel--collapsed' : ''}`}>
-          <RecentFilesPanel
-            files={recentFiles}
-            selectedPaths={selectedRecentPaths}
-            onOpen={handleOpenRecent}
-            onToggleSelect={handleToggleRecentSelection}
-            onMergeSelected={handleMergeSelectedRecents}
-            onRemove={handleRemoveRecent}
+      <RecentFilesPanel
+        files={recentFiles}
+        selectedPaths={selectedRecentPaths}
+        onOpen={handleOpenRecent}
+        onLocate={handleLocateRecent}
+        onToggleSelect={handleToggleRecentSelection}
+        onMergeSelected={handleMergeSelectedRecents}
+        onRemove={handleRemoveRecent}
             emptyState="No recent files yet."
           />
           {!panelCollapsed && (

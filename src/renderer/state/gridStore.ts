@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { CellValue, ColumnProfile, CsvDocument } from '@shared/types';
 import { inferColumnProfiles } from './columnProfiling';
 import { buildFilteredRowEntries } from './filtering';
+import { sortRowEntries, type SortDirection, type SortRule } from './sorting';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,6 +14,7 @@ type Snapshot = {
   delimiter: string;
   newline: '\n' | '\r\n';
   filePath?: string | null;
+  sorts: SortRule[];
 };
 
 export type UndoEntry = {
@@ -41,6 +43,7 @@ interface TabSnapshot {
   columnProfiles: ColumnProfile[];
   columnWidths: Record<number, number>;
   filters: Record<number, string>;
+  sorts: SortRule[];
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
   _batchDepth: number;
@@ -68,6 +71,7 @@ interface GridState extends Snapshot {
   columnProfiles: ColumnProfile[];
   columnWidths: Record<number, number>;
   filters: Record<number, string>;
+  sorts: SortRule[];
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
 
@@ -105,6 +109,10 @@ interface GridState extends Snapshot {
   replaceAll: (term: string, replacement: string, matches: { row: number; col: number }[]) => void;
   setColumnWidth: (columnIndex: number, width: number) => void;
   setFilter: (columnIndex: number, value: string) => void;
+  toggleSort: (columnIndex: number, additive?: boolean) => void;
+  setSort: (columnIndex: number, direction: SortDirection, additive?: boolean) => void;
+  clearSort: (columnIndex: number) => void;
+  clearAllSorts: () => void;
   hasActiveFilters: () => boolean;
   getFilteredRows: () => CellValue[][];
   clear: () => void;
@@ -124,7 +132,8 @@ const cloneSnapshot = (state: Snapshot | GridState): Snapshot => ({
   rows: state.rows.map((row) => [...row]),
   delimiter: state.delimiter,
   newline: state.newline,
-  filePath: state.filePath ?? null
+  filePath: state.filePath ?? null,
+  sorts: [...state.sorts]
 });
 
 const createEmptySnapshot = (): Snapshot => ({
@@ -132,7 +141,8 @@ const createEmptySnapshot = (): Snapshot => ({
   rows: [],
   delimiter: ',',
   newline: '\n',
-  filePath: null
+  filePath: null,
+  sorts: []
 });
 
 /** Trim a stack to at most MAX_UNDO_HISTORY entries (drops oldest). */
@@ -151,6 +161,7 @@ const captureActiveTab = (state: GridState): TabSnapshot => ({
   columnProfiles: [...state.columnProfiles],
   columnWidths: { ...state.columnWidths },
   filters: { ...state.filters },
+  sorts: [...state.sorts],
   undoStack: [...state.undoStack],
   redoStack: [...state.redoStack],
   _batchDepth: state._batchDepth,
@@ -172,6 +183,7 @@ const restoreFromTabSnapshot = (
   columnProfiles: snap.columnProfiles,
   columnWidths: snap.columnWidths,
   filters: snap.filters,
+  sorts: snap.sorts,
   undoStack: snap.undoStack,
   redoStack: snap.redoStack,
   _batchDepth: snap._batchDepth,
@@ -223,6 +235,48 @@ const moveColumnWidths = (
     }
     return acc;
   }, {});
+};
+
+const shiftSortsForInsert = (sorts: SortRule[], insertIndex: number): SortRule[] =>
+  sorts.map((sort) => ({
+    ...sort,
+    columnIndex: sort.columnIndex >= insertIndex ? sort.columnIndex + 1 : sort.columnIndex
+  }));
+
+const shiftSortsForRemoval = (sorts: SortRule[], removedIndex: number): SortRule[] =>
+  sorts
+    .filter((sort) => sort.columnIndex !== removedIndex)
+    .map((sort) => ({
+      ...sort,
+      columnIndex: sort.columnIndex > removedIndex ? sort.columnIndex - 1 : sort.columnIndex
+    }));
+
+const moveSorts = (
+  sorts: SortRule[],
+  fromStart: number,
+  fromEnd: number,
+  toIndex: number
+): SortRule[] => {
+  const count = fromEnd - fromStart + 1;
+  const insertAt = toIndex > fromStart ? toIndex - count : toIndex;
+
+  const moveColumnIndex = (columnIndex: number): number => {
+    if (columnIndex >= fromStart && columnIndex <= fromEnd) {
+      return insertAt + (columnIndex - fromStart);
+    }
+    if (toIndex < fromStart && columnIndex >= toIndex && columnIndex < fromStart) {
+      return columnIndex + count;
+    }
+    if (toIndex > fromEnd && columnIndex > fromEnd && columnIndex < toIndex) {
+      return columnIndex - count;
+    }
+    return columnIndex;
+  };
+
+  return sorts.map((sort) => ({
+    ...sort,
+    columnIndex: moveColumnIndex(sort.columnIndex)
+  }));
 };
 
 // ---------------------------------------------------------------------------
@@ -317,6 +371,7 @@ export const useGridStore = create<GridState>()((set, get) => {
     columnProfiles: [],
     columnWidths: {},
     filters: {},
+    sorts: [],
     undoStack: [],
     redoStack: [],
     _batchDepth: 0,
@@ -369,6 +424,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           columnProfiles: inferColumnProfiles(doc.headers, doc.rows),
           columnWidths: {},
           filters: {},
+          sorts: [],
           undoStack: [],
           redoStack: [],
           _batchDepth: 0,
@@ -433,6 +489,7 @@ export const useGridStore = create<GridState>()((set, get) => {
               columnProfiles: [],
               columnWidths: {},
               filters: {},
+              sorts: [],
               undoStack: [],
               redoStack: [],
               _batchDepth: 0,
@@ -492,6 +549,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           columnProfiles: [],
           columnWidths: {},
           filters: {},
+          sorts: [],
           undoStack: [],
           redoStack: [],
           _batchDepth: 0,
@@ -534,6 +592,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         dirty: false,
         columnWidths: {},
         filters: {},
+        sorts: [],
         undoStack: [],
         redoStack: [],
         _batchDepth: 0,
@@ -599,6 +658,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           return newRow;
         });
         draft.columnWidths = shiftColumnWidthsForInsert(draft.columnWidths, columnIndex);
+        draft.sorts = shiftSortsForInsert(draft.sorts, columnIndex);
       });
     },
 
@@ -613,6 +673,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         draft.headers.splice(columnIndex, 1);
         draft.rows = draft.rows.map((row) => row.filter((_, idx) => idx !== columnIndex));
         draft.columnWidths = shiftColumnWidthsForRemoval(draft.columnWidths, columnIndex);
+        draft.sorts = shiftSortsForRemoval(draft.sorts, columnIndex);
       });
     },
 
@@ -641,6 +702,7 @@ export const useGridStore = create<GridState>()((set, get) => {
           return row;
         });
         draft.columnWidths = moveColumnWidths(draft.columnWidths, fromStart, fromEnd, toIndex);
+        draft.sorts = moveSorts(draft.sorts, fromStart, fromEnd, toIndex);
       });
     },
 
@@ -693,14 +755,68 @@ export const useGridStore = create<GridState>()((set, get) => {
         }
       })),
 
+    toggleSort: (columnIndex, additive = false) =>
+      set((state) => {
+        const existing = state.sorts.find((sort) => sort.columnIndex === columnIndex);
+
+        if (!existing) {
+          return {
+            ...state,
+            sorts: additive
+              ? [...state.sorts, { columnIndex, direction: 'asc' }]
+              : [{ columnIndex, direction: 'asc' }]
+          };
+        }
+
+        if (existing.direction === 'asc') {
+          const nextSort = { columnIndex, direction: 'desc' as const };
+          return {
+            ...state,
+            sorts: additive
+              ? state.sorts.map((sort) => (sort.columnIndex === columnIndex ? nextSort : sort))
+              : [nextSort]
+          };
+        }
+
+        return {
+          ...state,
+          sorts: state.sorts.filter((sort) => sort.columnIndex !== columnIndex)
+        };
+      }),
+
+    setSort: (columnIndex, direction, additive = false) =>
+      set((state) => {
+        const withoutColumn = state.sorts.filter((sort) => sort.columnIndex !== columnIndex);
+        return {
+          ...state,
+          sorts: additive ? [...withoutColumn, { columnIndex, direction }] : [{ columnIndex, direction }]
+        };
+      }),
+
+    clearSort: (columnIndex) =>
+      set((state) => ({
+        ...state,
+        sorts: state.sorts.filter((sort) => sort.columnIndex !== columnIndex)
+      })),
+
+    clearAllSorts: () =>
+      set((state) => ({
+        ...state,
+        sorts: []
+      })),
+
     hasActiveFilters: () => {
       const { filters } = get();
       return Object.values(filters).some((v) => v?.length > 0);
     },
 
     getFilteredRows: () => {
-      const { rows, filters, columnProfiles } = get();
-      return buildFilteredRowEntries(rows, filters, columnProfiles).map((entry) => entry.row);
+      const { rows, filters, columnProfiles, sorts } = get();
+      return sortRowEntries(
+        buildFilteredRowEntries(rows, filters, columnProfiles),
+        sorts,
+        columnProfiles
+      ).map((entry) => entry.row);
     },
 
     clear: () =>
@@ -711,6 +827,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         columnProfiles: [],
         columnWidths: {},
         filters: {},
+        sorts: [],
         undoStack: [],
         redoStack: [],
         _batchDepth: 0,

@@ -3,6 +3,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CellValue, ColumnProfile } from '@shared/types';
 import classNames from 'classnames';
 import { buildFilteredRowEntries } from '../state/filtering';
+import type { SortDirection, SortRule } from '../state/sorting';
+import { sortRowEntries } from '../state/sorting';
 import { useGridStore } from '../state/gridStore';
 
 export interface SearchMatch {
@@ -15,7 +17,11 @@ interface DataGridProps {
   rows: CellValue[][];
   columnProfiles: ColumnProfile[];
   filters: Record<number, string>;
+  sorts: SortRule[];
   onFilterChange: (columnIndex: number, value: string) => void;
+  onSetSort: (columnIndex: number, direction: SortDirection, additive?: boolean) => void;
+  onClearSort: (columnIndex: number) => void;
+  onClearAllSorts: () => void;
   onEditCell: (rowIndex: number, columnIndex: number, value: CellValue) => void;
   onEditHeader: (columnIndex: number, value: string) => void;
   onInsertRowAt: (rowIndex: number) => void;
@@ -34,6 +40,7 @@ interface DataGridProps {
   searchMatches?: SearchMatch[];
   currentSearchMatch?: SearchMatch | null;
   wrapText?: boolean;
+  onActiveColumnChange?: (columnIndex: number | null) => void;
 }
 
 type ContextMenu = {
@@ -65,7 +72,7 @@ const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
 const FILTER_HELP_DISMISSED_KEY = 'sheetEditor.filterHelpDismissed';
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, onFilterChange, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, wrapText }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, sorts, onFilterChange, onSetSort, onClearSort, onClearAllSorts, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, wrapText, onActiveColumnChange }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -130,6 +137,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     [headers, columnWidths, rowNumWidth]
   );
 
+  const totalColumnWidth = totalGridWidth - rowNumWidth;
+
   const handleBodyScroll = useCallback(() => {
     if (scrollRef.current && headerScrollRef.current) {
       headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
@@ -137,8 +146,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   }, []);
 
   const filteredRows = useMemo(
-    () => buildFilteredRowEntries(rows, filters, columnProfiles),
-    [rows, filters, columnProfiles]
+    () => sortRowEntries(buildFilteredRowEntries(rows, filters, columnProfiles), sorts, columnProfiles),
+    [rows, filters, columnProfiles, sorts]
   );
 
   // Map from source row index → filtered row index (for keyboard navigation)
@@ -161,6 +170,32 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     }
   }, []);
 
+  const getSortForColumn = useCallback(
+    (columnIndex: number) => sorts.find((sort) => sort.columnIndex === columnIndex),
+    [sorts]
+  );
+
+  const getSortOrder = useCallback(
+    (columnIndex: number) => {
+      const index = sorts.findIndex((sort) => sort.columnIndex === columnIndex);
+      return index >= 0 ? index + 1 : null;
+    },
+    [sorts]
+  );
+
+  const handleSortToggle = useCallback((columnIndex: number, additive = false) => {
+    const current = getSortForColumn(columnIndex);
+    if (!current) {
+      onSetSort(columnIndex, 'asc', additive);
+      return;
+    }
+    if (current.direction === 'asc') {
+      onSetSort(columnIndex, 'desc', additive);
+      return;
+    }
+    onClearSort(columnIndex);
+  }, [getSortForColumn, onClearSort, onSetSort]);
+
   // --- Search match lookup ---
   const searchMatchSet = useMemo(() => {
     const set = new Set<string>();
@@ -178,6 +213,18 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const isCurrentSearchMatch = (sourceRowIndex: number, columnIndex: number) =>
     currentSearchMatch?.row === sourceRowIndex && currentSearchMatch?.col === columnIndex;
   const searchSelectionRef = useRef(false);
+
+  useEffect(() => {
+    const activeColumn =
+      editingHeader !== null
+        ? editingHeader
+        : editing?.columnIndex ?? (selected?.type === 'header'
+          ? selected.focusCol
+          : selected?.type === 'cells'
+            ? selected.range.focusCol
+            : null);
+    onActiveColumnChange?.(activeColumn);
+  }, [editing, editingHeader, onActiveColumnChange, selected]);
 
   const getColumnOffset = useCallback((columnIndex: number) => {
     let left = rowNumWidth;
@@ -269,17 +316,35 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     count: filteredRows.length,
     estimateSize: () => 32,
     getScrollElement: () => scrollRef.current,
-    overscan: 10,
+    overscan: 20,
     measureElement: wrapText
       ? (el: Element) => el.getBoundingClientRect().height
       : undefined,
   });
   rowVirtualizerRef.current = rowVirtualizer;
 
+  const columnVirtualizer = useVirtualizer({
+    horizontal: true,
+    count: headers.length,
+    estimateSize: (index) => columnWidths[index] ?? DEFAULT_COLUMN_WIDTH,
+    getScrollElement: () => scrollRef.current,
+    overscan: 6
+  });
+
+  const virtualColumns = columnVirtualizer.getVirtualItems();
+  const virtualColumnStart = virtualColumns[0]?.start ?? 0;
+  const virtualColumnEnd = virtualColumns[virtualColumns.length - 1]?.end ?? 0;
+  const virtualPaddingLeft = virtualColumnStart;
+  const virtualPaddingRight = Math.max(0, columnVirtualizer.getTotalSize() - virtualColumnEnd);
+
   // Re-measure all rows when wrapText toggles or column widths change
   useEffect(() => {
     rowVirtualizerRef.current?.measure();
   }, [wrapText, columnWidths]);
+
+  useEffect(() => {
+    columnVirtualizer.measure();
+  }, [columnVirtualizer, columnWidths]);
 
   useEffect(() => {
     if (!selected) return;
@@ -408,14 +473,37 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     maxCol: Math.max(range.anchorCol, range.focusCol)
   });
 
+  const getVisibleSelectionBounds = (range: CellRange) => {
+    const anchorFilteredRow = sourceToFilteredIndex.get(range.anchorRow);
+    const focusFilteredRow = sourceToFilteredIndex.get(range.focusRow);
+    if (anchorFilteredRow === undefined || focusFilteredRow === undefined) {
+      return null;
+    }
+
+    return {
+      minFilteredRow: Math.min(anchorFilteredRow, focusFilteredRow),
+      maxFilteredRow: Math.max(anchorFilteredRow, focusFilteredRow),
+      minCol: Math.min(range.anchorCol, range.focusCol),
+      maxCol: Math.max(range.anchorCol, range.focusCol)
+    };
+  };
+
+  const getVisibleSelectedRows = (range: CellRange) => {
+    const bounds = getVisibleSelectionBounds(range);
+    if (!bounds) return [];
+    return filteredRows.slice(bounds.minFilteredRow, bounds.maxFilteredRow + 1);
+  };
+
   const isCellInSelection = (sourceRowIndex: number, columnIndex: number) => {
     if (selected?.type !== 'cells') return false;
-    const { minRow, maxRow, minCol, maxCol } = getSelectionBounds(selected.range);
+    const bounds = getVisibleSelectionBounds(selected.range);
+    const filteredIndex = sourceToFilteredIndex.get(sourceRowIndex);
+    if (!bounds || filteredIndex === undefined) return false;
     return (
-      sourceRowIndex >= minRow &&
-      sourceRowIndex <= maxRow &&
-      columnIndex >= minCol &&
-      columnIndex <= maxCol
+      filteredIndex >= bounds.minFilteredRow &&
+      filteredIndex <= bounds.maxFilteredRow &&
+      columnIndex >= bounds.minCol &&
+      columnIndex <= bounds.maxCol
     );
   };
 
@@ -577,17 +665,14 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       return;
     }
     if (selected?.type !== 'cells') return;
-    const { minRow, maxRow, minCol, maxCol } = getSelectionBounds(selected.range);
-
-    // Only copy visible (filtered) rows within the range
-    const visibleRows = filteredRows.filter(
-      (entry) => entry.index >= minRow && entry.index <= maxRow
-    );
+    const bounds = getVisibleSelectionBounds(selected.range);
+    if (!bounds) return;
+    const visibleRows = filteredRows.slice(bounds.minFilteredRow, bounds.maxFilteredRow + 1);
 
     const text = visibleRows
       .map((entry) => {
         const cells: string[] = [];
-        for (let col = minCol; col <= maxCol; col++) {
+        for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
           cells.push(String(entry.row[col] ?? ''));
         }
         return cells.join('\t');
@@ -623,7 +708,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       return;
     }
     if (selected?.type !== 'cells') return;
-    const { minRow, maxRow, minCol, maxCol } = getSelectionBounds(selected.range);
+    const bounds = getVisibleSelectionBounds(selected.range);
+    if (!bounds) return;
+    const visibleRows = getVisibleSelectedRows(selected.range);
 
     const text = await navigator.clipboard.readText();
     if (!text) return;
@@ -637,21 +724,20 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     onBeginBatch('Paste');
     if (isSingleCellClipboard) {
       const value = pasteRows[0][0];
-      for (let row = minRow; row <= maxRow; row++) {
-        if (row >= rows.length) continue;
-        for (let col = minCol; col <= maxCol; col++) {
+      for (const entry of visibleRows) {
+        for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
           if (col >= headers.length) continue;
-          onEditCell(row, col, value);
+          onEditCell(entry.index, col, value);
         }
       }
     } else {
       pasteRows.forEach((pasteCols, rowOffset) => {
-        const targetRow = minRow + rowOffset;
-        if (targetRow >= rows.length) return;
+        const targetRow = visibleRows[rowOffset];
+        if (!targetRow) return;
         pasteCols.forEach((value, colOffset) => {
-          const targetCol = minCol + colOffset;
+          const targetCol = bounds.minCol + colOffset;
           if (targetCol >= headers.length) return;
-          onEditCell(targetRow, targetCol, value);
+          onEditCell(targetRow.index, targetCol, value);
         });
       });
     }
@@ -677,11 +763,13 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     }
     if (selected?.type !== 'cells') return;
     handleCopy();
-    const { minRow, maxRow, minCol, maxCol } = getSelectionBounds(selected.range);
+    const bounds = getVisibleSelectionBounds(selected.range);
+    if (!bounds) return;
+    const visibleRows = getVisibleSelectedRows(selected.range);
     onBeginBatch('Cut');
-    for (let row = minRow; row <= maxRow; row++) {
-      for (let col = minCol; col <= maxCol; col++) {
-        onEditCell(row, col, '');
+    for (const entry of visibleRows) {
+      for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
+        onEditCell(entry.index, col, '');
       }
     }
     onCommitBatch();
@@ -991,14 +1079,16 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
           range: { anchorRow: minRow, anchorCol: 0, focusRow: maxRow, focusCol: maxCol }
         });
       } else if (e.key === 'ArrowDown') {
+        const lastVisibleRow = filteredRows[filteredRows.length - 1]?.index ?? focusRow;
         setSelected({
           type: 'cells',
-          range: { anchorRow: minRow, anchorCol: minCol, focusRow: rows.length - 1, focusCol: maxCol }
+          range: { anchorRow: minRow, anchorCol: minCol, focusRow: lastVisibleRow, focusCol: maxCol }
         });
       } else if (e.key === 'ArrowUp') {
+        const firstVisibleRow = filteredRows[0]?.index ?? focusRow;
         setSelected({
           type: 'cells',
-          range: { anchorRow: 0, anchorCol: minCol, focusRow: maxRow, focusCol: maxCol }
+          range: { anchorRow: firstVisibleRow, anchorCol: minCol, focusRow: maxRow, focusCol: maxCol }
         });
       }
       return;
@@ -1123,11 +1213,13 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
           setDraftValue('');
         }
       } else {
-        const { minRow, maxRow, minCol, maxCol } = getSelectionBounds(selected.range);
+        const bounds = getVisibleSelectionBounds(selected.range);
+        if (!bounds) return;
+        const visibleRows = getVisibleSelectedRows(selected.range);
         onBeginBatch('Clear Cells');
-        for (let r = minRow; r <= maxRow; r++) {
-          for (let c = minCol; c <= maxCol; c++) {
-            onEditCell(r, c, '');
+        for (const entry of visibleRows) {
+          for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
+            onEditCell(entry.index, c, '');
           }
         }
         onCommitBatch();
@@ -1228,16 +1320,22 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       onKeyDown={handleKeyDown}
     >
       <div className="data-grid__header-scroll" ref={headerScrollRef}>
-        <div className="data-grid__header" style={{ gridTemplateColumns: fullGridTemplateColumns, minWidth: `${totalGridWidth}px` }}>
-          <div className="data-grid__row-number data-grid__row-number--header" />
-          {headers.map((header, index) => {
+        <div className="data-grid__header" style={{ minWidth: `${totalGridWidth}px` }}>
+          <div className="data-grid__row-number data-grid__row-number--header" style={{ width: `${rowNumWidth}px` }} />
+          <div className="data-grid__column-window" style={{ width: `${totalColumnWidth}px` }}>
+            {virtualPaddingLeft > 0 && <div className="data-grid__virtual-spacer" style={{ width: `${virtualPaddingLeft}px` }} />}
+            {virtualColumns.map((virtualColumn) => {
+            const index = virtualColumn.index;
+            const header = headers[index];
             const profile = columnProfiles[index];
+            const activeSort = getSortForColumn(index);
+            const sortOrder = getSortOrder(index);
             const headerSelected = isHeaderSelected(index);
             const headerEditing = editingHeader === index;
             const headerIsMatch = isSearchMatch(-1, index);
             const headerIsCurrentMatch = isCurrentSearchMatch(-1, index);
             return (
-                <div
+              <div
                 key={header + index}
                 className={classNames('data-grid__header-cell', {
                   'data-grid__header-cell--selected': headerSelected && !headerEditing,
@@ -1245,6 +1343,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                   'data-grid__header-cell--search-match': headerIsMatch && !headerIsCurrentMatch,
                   'data-grid__header-cell--search-current': headerIsCurrentMatch
                 })}
+                style={{ width: `${virtualColumn.size}px` }}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!headerEditing) {
@@ -1278,26 +1377,45 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                       {header}
                     </span>
                   )}
-                  <button
-                    className={classNames('filter-toggle', { 'filter-toggle--active': filters[index]?.length })}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenFilters((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(index)) {
-                          next.delete(index);
-                        } else {
-                          next.add(index);
-                        }
-                        return next;
-                      });
-                    }}
-                    title="Filter column"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M1 2a1 1 0 0 1 1-1h12a1 1 0 0 1 .8 1.6L10 10v4a1 1 0 0 1-.55.9l-2 1A1 1 0 0 1 6 15v-5L1.2 2.6A1 1 0 0 1 1 2z" />
-                    </svg>
-                  </button>
+                  <div className="data-grid__header-actions">
+                    <button
+                      className={classNames('sort-toggle', { 'sort-toggle--active': activeSort })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSortToggle(index, e.shiftKey);
+                      }}
+                      title={
+                        activeSort
+                          ? `Sorted ${activeSort.direction === 'asc' ? 'ascending' : 'descending'}`
+                          : 'Sort column'
+                      }
+                    >
+                      <span className="sort-toggle__glyph">{activeSort?.direction === 'desc' ? '↓' : '↑'}</span>
+                      {sortOrder !== null && sorts.length > 1 && (
+                        <span className="sort-toggle__order">{sortOrder}</span>
+                      )}
+                    </button>
+                    <button
+                      className={classNames('filter-toggle', { 'filter-toggle--active': filters[index]?.length })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenFilters((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(index)) {
+                            next.delete(index);
+                          } else {
+                            next.add(index);
+                          }
+                          return next;
+                        });
+                      }}
+                      title="Filter column"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M1 2a1 1 0 0 1 1-1h12a1 1 0 0 1 .8 1.6L10 10v4a1 1 0 0 1-.55.9l-2 1A1 1 0 0 1 6 15v-5L1.2 2.6A1 1 0 0 1 1 2z" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 {openFilters.has(index) && (
                   <div className="data-grid__filter-row">
@@ -1346,7 +1464,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                 />
               </div>
             );
-          })}
+            })}
+            {virtualPaddingRight > 0 && <div className="data-grid__virtual-spacer" style={{ width: `${virtualPaddingRight}px` }} />}
+          </div>
         </div>
       </div>
       <div className="grid-scroll-area" ref={scrollRef} onScroll={handleBodyScroll}>
@@ -1369,7 +1489,6 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                 data-index={virtualRow.index}
                 className="data-grid__row"
                 style={{
-                  gridTemplateColumns: fullGridTemplateColumns,
                   position: 'absolute',
                   top: 0,
                   left: 0,
@@ -1377,8 +1496,11 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                   transform: `translateY(${virtualRow.start}px)`
                 }}
               >
-                <div className="data-grid__row-number">{sourceIndex + 1}</div>
-                {headers.map((_, columnIndex) => {
+                <div className="data-grid__row-number" style={{ width: `${rowNumWidth}px` }}>{sourceIndex + 1}</div>
+                <div className="data-grid__column-window" style={{ width: `${totalColumnWidth}px` }}>
+                  {virtualPaddingLeft > 0 && <div className="data-grid__virtual-spacer" style={{ width: `${virtualPaddingLeft}px` }} />}
+                  {virtualColumns.map((virtualColumn) => {
+                  const columnIndex = virtualColumn.index;
                   const isEditing =
                     editing?.rowIndex === sourceIndex && editing?.columnIndex === columnIndex;
                   const cellSelected = isCellInSelection(sourceIndex, columnIndex);
@@ -1394,6 +1516,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                         'data-grid__cell--search-match': cellIsMatch && !cellIsCurrentMatch,
                         'data-grid__cell--search-current': cellIsCurrentMatch
                       })}
+                      style={{ width: `${virtualColumn.size}px` }}
                       onMouseDown={(e) => {
                         e.stopPropagation();
                         if (!isEditing) {
@@ -1433,7 +1556,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                       )}
                     </div>
                   );
-                })}
+                  })}
+                  {virtualPaddingRight > 0 && <div className="data-grid__virtual-spacer" style={{ width: `${virtualPaddingRight}px` }} />}
+                </div>
               </div>
             );
           })}
@@ -1504,6 +1629,43 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
               >
                 Move Row Down
               </button>
+              <div className="context-menu__separator" />
+            </>
+          )}
+          {contextMenu.isHeader && (
+            <>
+              <button
+                className="context-menu__item"
+                onClick={() => { onSetSort(contextMenu.columnIndex, 'asc'); closeContextMenu(); }}
+              >
+                Sort Ascending
+              </button>
+              <button
+                className="context-menu__item"
+                onClick={() => { onSetSort(contextMenu.columnIndex, 'desc'); closeContextMenu(); }}
+              >
+                Sort Descending
+              </button>
+              <button
+                className="context-menu__item"
+                onClick={() => { onSetSort(contextMenu.columnIndex, 'asc', true); closeContextMenu(); }}
+              >
+                Add to Sort
+              </button>
+              <button
+                className={classNames('context-menu__item', { 'context-menu__item--disabled': !getSortForColumn(contextMenu.columnIndex) })}
+                onClick={() => { onClearSort(contextMenu.columnIndex); closeContextMenu(); }}
+              >
+                Clear Sort on This Column
+              </button>
+              {sorts.length > 0 && (
+                <button
+                  className="context-menu__item"
+                  onClick={() => { onClearAllSorts(); closeContextMenu(); }}
+                >
+                  Clear All Sorts
+                </button>
+              )}
               <div className="context-menu__separator" />
             </>
           )}

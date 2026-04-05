@@ -50,6 +50,13 @@ export interface RecentFile {
   path: string;
   openedAt: string;
   bookmark?: string;
+  status?: 'available' | 'missing';
+}
+
+export interface OpenRecentFileResult {
+  document: CsvDocument;
+  recentFile: RecentFile;
+  pathChanged: boolean;
 }
 
 export interface ProgressPayload {

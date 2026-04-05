@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from 'electron';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import type { CsvDocument, MergeRecentFilesPayload, SavePayload, ThemeMode } from '@shared/types';
+import type { CsvDocument, MergeRecentFilesPayload, OpenRecentFileResult, RecentFile, SavePayload, ThemeMode } from '@shared/types';
 import { FileManager } from './services/fileManager';
 import { RecentFileStore } from './recentFiles';
 import { SettingsStore } from './settingsStore';
@@ -64,19 +64,47 @@ const isMacPermissionError = (error: unknown) =>
   error instanceof Error &&
   (error.message.includes('EPERM') || error.message.includes('operation not permitted'));
 
-const promptToReauthorizeFile = async (filePath: string) => {
-  if (!mainWindow || process.platform !== 'darwin') {
+const isMissingFileError = (error: unknown) =>
+  error instanceof Error &&
+  (('code' in error && error.code === 'ENOENT') || error.message.includes('ENOENT'));
+
+const hydrateRecentFile = async (recent: RecentFile): Promise<RecentFile> => {
+  try {
+    await stat(recent.path);
+    return { ...recent, status: 'available' };
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return { ...recent, status: 'missing' };
+    }
+    return { ...recent, status: 'available' };
+  }
+};
+
+const listRecentFiles = async () => Promise.all(recents.list().map((recent) => hydrateRecentFile(recent)));
+
+const promptToChooseRecentFileLocation = async ({
+  filePath,
+  title,
+  message,
+  buttonLabel
+}: {
+  filePath: string;
+  title: string;
+  message: string;
+  buttonLabel: string;
+}) => {
+  if (!mainWindow) {
     return null;
   }
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Allow Rowly to Reopen This File',
-    message: 'macOS requires permission to reopen this file from Recents.',
+    title,
+    message,
     defaultPath: filePath,
-    buttonLabel: 'Allow Access',
+    buttonLabel,
     properties: ['openFile'],
     filters: [{ name: 'CSV', extensions: ['csv', 'tsv'] }],
-    securityScopedBookmarks: true
+    securityScopedBookmarks: process.platform === 'darwin'
   });
 
   if (result.canceled || result.filePaths.length === 0) {
@@ -90,6 +118,22 @@ const promptToReauthorizeFile = async (filePath: string) => {
 
   return { filePath: selectedPath, bookmark };
 };
+
+const promptToReauthorizeFile = async (filePath: string) =>
+  promptToChooseRecentFileLocation({
+    filePath,
+    title: 'Allow Rowly to Reopen This File',
+    message: 'macOS requires permission to reopen this file from Recents.',
+    buttonLabel: 'Allow Access'
+  });
+
+const promptToLocateRecentFile = async (filePath: string) =>
+  promptToChooseRecentFileLocation({
+    filePath,
+    title: 'Locate Moved Recent File',
+    message: 'This recent file was moved or renamed. Choose its new location to keep it in Recents.',
+    buttonLabel: 'Update Recent'
+  });
 
 const openFileFromPath = async (filePath: string) => {
   const bookmark = recents.find(filePath)?.bookmark;
@@ -111,6 +155,47 @@ const openFileFromPath = async (filePath: string) => {
     }
 
     return fileManager.open(reauthorized.filePath, { bookmark: reauthorized.bookmark });
+  }
+};
+
+const openRecentFile = async (filePath: string): Promise<OpenRecentFileResult> => {
+  const existing = recents.find(filePath);
+
+  try {
+    const document = await openFileFromPath(filePath);
+    const recentFile = await hydrateRecentFile(recents.find(filePath) ?? {
+      path: filePath,
+      openedAt: new Date().toISOString(),
+      bookmark: existing?.bookmark
+    });
+
+    return {
+      document,
+      recentFile,
+      pathChanged: false
+    };
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      throw error;
+    }
+
+    const located = await promptToLocateRecentFile(filePath);
+    if (!located) {
+      throw error;
+    }
+
+    const document = await fileManager.open(located.filePath, { bookmark: located.bookmark });
+    recents.replace(filePath, located.filePath, located.bookmark);
+
+    return {
+      document,
+      recentFile: await hydrateRecentFile(recents.find(located.filePath) ?? {
+        path: located.filePath,
+        openedAt: new Date().toISOString(),
+        bookmark: located.bookmark
+      }),
+      pathChanged: located.filePath !== filePath
+    };
   }
 };
 
@@ -322,9 +407,9 @@ ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
   return result.filePath;
 });
 
-ipcMain.handle('file:load', async (_event, filePath: string) => {
-  return openFileFromPath(filePath);
-});
+ipcMain.handle('file:load', async (_event, filePath: string) => openFileFromPath(filePath));
+
+ipcMain.handle('recent:open', async (_event, filePath: string) => openRecentFile(filePath));
 
 ipcMain.handle('file:merge-recents', async (_event, payload: MergeRecentFilesPayload) => {
   return openRecentFilesForMerge(payload.pathA, payload.pathB);
@@ -344,7 +429,17 @@ ipcMain.handle('file:save', async (_event, payload: SavePayload) => {
   return true;
 });
 
-ipcMain.handle('recent:list', () => recents.list());
+ipcMain.handle('recent:list', () => listRecentFiles());
+
+ipcMain.handle('recent:locate', async (_event, filePath: string) => {
+  const located = await promptToLocateRecentFile(filePath);
+  if (!located) {
+    return null;
+  }
+
+  recents.replace(filePath, located.filePath, located.bookmark);
+  return listRecentFiles();
+});
 
 ipcMain.handle('recent:remove', (_event, filePath: string) => recents.remove(filePath));
 

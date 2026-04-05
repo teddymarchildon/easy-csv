@@ -4,6 +4,7 @@ interface RecentFilesPanelProps {
   files: RecentFile[];
   selectedPaths: string[];
   onOpen: (filePath: string) => void;
+  onLocate: (filePath: string) => void;
   onToggleSelect: (filePath: string) => void;
   onMergeSelected: () => void;
   onRemove: (filePath: string) => void;
@@ -33,6 +34,7 @@ const RecentFilesPanel = ({
   files,
   selectedPaths,
   onOpen,
+  onLocate,
   onToggleSelect,
   onMergeSelected,
   onRemove,
@@ -58,11 +60,12 @@ const RecentFilesPanel = ({
         {files.map((file) => {
           const { folder, fileName } = extractParts(file.path);
           const isSelected = selectedPaths.includes(file.path);
-          const selectDisabled = !isSelected && selectedCount >= 2;
+          const isMissing = file.status === 'missing';
+          const selectDisabled = isMissing || (!isSelected && selectedCount >= 2);
           return (
             <li
               key={file.path}
-              className={`recent-list__item${isSelected ? ' recent-list__item--selected' : ''}`}
+              className={`recent-list__item${isSelected ? ' recent-list__item--selected' : ''}${isMissing ? ' recent-list__item--missing' : ''}`}
             >
               <button
                 className={`recent-item__select${isSelected ? ' recent-item__select--selected' : ''}`}
@@ -107,10 +110,20 @@ const RecentFilesPanel = ({
                     {fileName}
                   </span>
                   <span className="recent-item__folder">
-                    {timeAgo(file.openedAt)}
+                    {isMissing ? 'File moved or unavailable' : timeAgo(file.openedAt)}
                   </span>
                 </div>
               </button>
+              {isMissing && (
+                <button
+                  className="recent-item__locate"
+                  onClick={() => onLocate(file.path)}
+                  title={`Locate ${fileName}`}
+                  aria-label={`Locate ${fileName}`}
+                >
+                  Locate…
+                </button>
+              )}
               <button
                 className="recent-item__remove"
                 onClick={() => onRemove(file.path)}

@@ -5,11 +5,13 @@ import type { RendererApi } from './types';
 const api: RendererApi = {
   openFileViaDialog: () => ipcRenderer.invoke('dialog:open-file'),
   openFile: (path) => ipcRenderer.invoke('file:load', path),
+  openRecentFile: (path) => ipcRenderer.invoke('recent:open', path),
   startOpenFileEvents: () => ipcRenderer.invoke('app:start-open-file-events'),
   chooseSaveLocation: (defaultPath) => ipcRenderer.invoke('dialog:save-file', defaultPath),
   saveFile: (payload) => ipcRenderer.invoke('file:save', payload),
   mergeRecentFiles: (pathA, pathB) => ipcRenderer.invoke('file:merge-recents', { pathA, pathB }),
   getRecentFiles: () => ipcRenderer.invoke('recent:list'),
+  locateRecentFile: (path) => ipcRenderer.invoke('recent:locate', path),
   removeRecentFile: (path) => ipcRenderer.invoke('recent:remove', path),
   revealInFinder: (targetPath) => ipcRenderer.invoke('file:reveal', targetPath),
   getTheme: () => ipcRenderer.invoke('settings:get-theme'),
