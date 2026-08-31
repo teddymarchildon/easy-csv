@@ -146,7 +146,20 @@ npm run preview
 ```bash
 npm run lint          # ESLint across all source files
 npm run check-types   # Full TypeScript type check (no emit)
+npm run verify:mas    # Verify a packaged MAS signature, entitlements, and document types
 ```
+
+### Mac App Store Recent Files Acceptance Test
+
+Security-scoped bookmarks are only returned by Electron's MAS build, so persistent file access must be checked with a development-signed MAS package rather than `npm run dev`.
+
+1. Run `npm run make`, then `npm run verify:mas`.
+2. Open a CSV with Rowly's Open dialog, quit Rowly completely, relaunch, and reopen it from both the sidebar and **File → Open Recent** without another prompt.
+3. Repeat after opening a CSV from Finder and after dragging one into Rowly. Files first delivered by Finder or drag-and-drop may require one explicit **Allow Access** action before Rowly can persist permission across launches.
+4. Save a new file, quit, relaunch, edit it, and save again.
+5. Move or rename a recent file and confirm **Locate…** updates the stored entry.
+6. Repeat with files in Downloads, iCloud Drive, an external volume, and with identically named files in different folders.
+7. Confirm Rowly's Dock menu and **File → Open Recent** stay in sync when entries are opened, removed, or cleared.
 
 ---
 

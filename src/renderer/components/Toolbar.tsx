@@ -258,7 +258,7 @@ const Toolbar = ({
           <span className="toolbar-file-name">{filename}</span>
         </div>
       )}
-      <button className="toolbar-help-btn" onClick={onOpenHelp} title="Help">
+      <button className="toolbar-help-btn" onClick={onOpenHelp} title="Help" aria-label="Help">
         ?
       </button>
     </div>
@@ -266,4 +266,3 @@ const Toolbar = ({
 };
 
 export default Toolbar;
-

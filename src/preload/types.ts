@@ -1,4 +1,4 @@
-import type { CsvDocument, MergeRecentFilesResult, OpenRecentFileResult, ProgressPayload, RecentFile, ResolvedTheme, SavePayload, SaveResult, ThemeMode, ThemePayload } from '@shared/types';
+import type { CloseTabChoice, CsvDocument, MergeRecentFilesResult, OpenRecentFileResult, ProgressPayload, RecentFile, ResolvedTheme, SavePayload, SaveResult, ThemeMode, ThemePayload } from '@shared/types';
 
 export type MenuAction =
   | 'open'
@@ -6,7 +6,7 @@ export type MenuAction =
   | 'save-as'
   | 'save-filtered-as'
   | 'settings'
-  | 'new-tab'
+  | 'new-csv'
   | 'close-tab'
   | 'help-filter-language'
   | 'help-keyboard-shortcuts';
@@ -22,12 +22,15 @@ export interface RendererApi {
   getRecentFiles(): Promise<RecentFile[]>;
   locateRecentFile(path: string): Promise<RecentFile[] | null>;
   removeRecentFile(path: string): Promise<RecentFile[]>;
+  clearRecentFiles(): Promise<RecentFile[]>;
   revealInFinder(path: string): Promise<void>;
+  confirmCloseTab(fileName: string): Promise<CloseTabChoice>;
   getTheme(): Promise<ThemePayload>;
   setTheme(mode: ThemeMode): Promise<ThemePayload>;
   onThemeChange(callback: (resolved: ResolvedTheme) => void): () => void;
   onProgress(callback: (payload: ProgressPayload) => void): () => void;
   onOpenFileRequest(callback: (filePath: string) => void): () => void;
+  onRecentFilesChange(callback: () => void): () => void;
   onMenuAction(callback: (action: MenuAction) => void): () => void;
   onSaveBeforeClose(callback: () => void): () => void;
   completeSaveBeforeClose(success: boolean): void;

@@ -28,7 +28,13 @@ const App = () => {
   const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isPanelResizing, setIsPanelResizing] = useState(false);
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('rowly.recentsCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -41,10 +47,10 @@ const App = () => {
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   const [wrapText, setWrapText] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState<number | null>(null);
   const panelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const gridRef = useRef<DataGridHandle>(null);
-  const prevHasDataRef = useRef(false);
   const { openViaDialog, openFile, save, saveAs, saveFilteredAs } = useFileHandlers();
 
   const togglePanel = useCallback(() => setPanelCollapsed((prev) => !prev), []);
@@ -99,6 +105,9 @@ const App = () => {
     s.dirty || Object.values(s._tabSnapshots).some((snapshot) => snapshot.dirty)
   );
   const filePath = useGridStore((s) => s.filePath);
+  const delimiter = useGridStore((s) => s.delimiter);
+  const newline = useGridStore((s) => s.newline);
+  const hasUtf8Bom = useGridStore((s) => s.hasUtf8Bom);
   const meta = useGridStore((s) => s.meta);
   const columnProfiles = useGridStore((s) => s.columnProfiles);
   const openTab = useGridStore((s) => s.openTab);
@@ -232,10 +241,6 @@ const App = () => {
     setFindBarReplaceOpen((prev) => !prev);
   }, []);
 
-  // Tab actions
-  const newTab = useGridStore((s) => s.newTab);
-  const closeTab = useGridStore((s) => s.closeTab);
-
   const refreshRecents = useCallback(async () => {
     const files = await window.api.getRecentFiles();
     setRecentFiles(files);
@@ -264,17 +269,13 @@ const App = () => {
         } else {
           openTab(result.document);
         }
+        setNotice(null);
         refreshRecents();
       } catch (error) {
         setProgress(null);
         const message = error instanceof Error ? error.message : String(error);
-        const shouldRemove = window.confirm(
-          `Could not open this recent file.\n\n${targetPath}\n\n${message}\n\nRemove it from Recents?`
-        );
-        if (shouldRemove) {
-          await window.api.removeRecentFile(targetPath);
-          refreshRecents();
-        }
+        setNotice(`Couldn’t open ${targetPath.split('/').pop() || targetPath}: ${message}`);
+        refreshRecents();
       }
     },
     [openTab, refreshRecents]
@@ -302,6 +303,16 @@ const App = () => {
     },
     [refreshRecents]
   );
+
+  const handleClearRecents = useCallback(async () => {
+    const files = await window.api.clearRecentFiles();
+    setRecentFiles(files);
+    setSelectedRecentPaths([]);
+  }, []);
+
+  const handleRevealRecent = useCallback(async (targetPath: string) => {
+    await window.api.revealInFinder(targetPath);
+  }, []);
 
   const handleToggleRecentSelection = useCallback((targetPath: string) => {
     setSelectedRecentPaths((current) => {
@@ -381,10 +392,12 @@ const App = () => {
     });
   }, [openTab]);
 
-  /** Close a tab with dirty-check confirmation. */
+  /** Close a tab with a native Save / Cancel / Don't Save sheet. */
   const handleCloseTab = useCallback(
-    (tabId: string) => {
+    async (tabId: string) => {
       const state = useGridStore.getState();
+      const activeBefore = state.activeTabId;
+      const tab = state.tabs.find((candidate) => candidate.id === tabId);
       let tabDirty = false;
 
       if (tabId === state.activeTabId) {
@@ -395,13 +408,32 @@ const App = () => {
       }
 
       if (tabDirty) {
-        const confirmed = window.confirm('This tab has unsaved changes. Close it anyway?');
-        if (!confirmed) return;
+        const fileName = (tab?.filePath?.split('/').pop()) || 'Untitled.csv';
+        const choice = await window.api.confirmCloseTab(fileName);
+        if (choice === 'cancel') return;
+        if (choice === 'save') {
+          if (state.activeTabId !== tabId) state.switchTab(tabId);
+          try {
+            const savedPath = await save();
+            if (!savedPath) {
+              if (activeBefore && activeBefore !== tabId) useGridStore.getState().switchTab(activeBefore);
+              return;
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setNotice(`Couldn’t save ${fileName}: ${message}`);
+            if (activeBefore && activeBefore !== tabId) useGridStore.getState().switchTab(activeBefore);
+            return;
+          }
+        }
       }
 
-      closeTab(tabId);
+      useGridStore.getState().closeTab(tabId);
+      if (activeBefore && activeBefore !== tabId && useGridStore.getState().tabs.some((candidate) => candidate.id === activeBefore)) {
+        useGridStore.getState().switchTab(activeBefore);
+      }
     },
-    [closeTab]
+    [save]
   );
 
   // --- Command palette ---
@@ -412,7 +444,7 @@ const App = () => {
       { id: 'save', label: 'Save', shortcut: '⌘S', section: 'File' },
       { id: 'save-as', label: 'Save As', shortcut: '⇧⌘S', section: 'File' },
       { id: 'save-filtered-as', label: 'Save Filtered As', shortcut: '⇧⌘E', section: 'File' },
-      { id: 'new-tab', label: 'New Tab', shortcut: '⌘T', section: 'File' },
+      { id: 'new-csv', label: 'New CSV', shortcut: '⌘T', section: 'File' },
       { id: 'close-tab', label: 'Close Tab', shortcut: '⌘W', section: 'File' },
       { id: 'find', label: 'Find', shortcut: '⌘F', section: 'Edit' },
       { id: 'find-replace', label: 'Find and Replace', section: 'Edit' },
@@ -449,8 +481,8 @@ const App = () => {
         case 'save-filtered-as':
           handleSaveFilteredAs();
           break;
-        case 'new-tab':
-          newTab();
+        case 'new-csv':
+          handleCreateNewCsv();
           break;
         case 'close-tab': {
           const activeId = useGridStore.getState().activeTabId;
@@ -512,7 +544,7 @@ const App = () => {
           break;
       }
     },
-    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, togglePanel, addRow, addColumn, applySortToActiveColumn, clearActiveSort, clearAllSorts, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp, openFindBarAndFocus]
+    [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCreateNewCsv, handleCloseTab, togglePanel, addRow, addColumn, applySortToActiveColumn, clearActiveSort, clearAllSorts, undo, redo, headers, rows, toggleWrapText, openFilterHelp, openKeyboardHelp, openFindBarAndFocus]
   );
 
   // --- Panel resize drag logic ---
@@ -606,7 +638,7 @@ const App = () => {
       // New tab: Cmd+T
       if (mod && e.key === 't') {
         e.preventDefault();
-        useGridStore.getState().newTab();
+        handleCreateNewCsv();
       }
 
       // Close tab: Cmd+W
@@ -618,13 +650,26 @@ const App = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, handleCloseTab, handleSaveFilteredAs, openFindBarAndFocus]);
+  }, [undo, redo, handleCloseTab, handleCreateNewCsv, handleSaveFilteredAs, openFindBarAndFocus]);
 
   // --- Effects ---
 
   useEffect(() => {
     refreshRecents();
   }, [refreshRecents]);
+
+  useEffect(() => {
+    const dispose = window.api.onRecentFilesChange(refreshRecents);
+    return () => dispose();
+  }, [refreshRecents]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('rowly.recentsCollapsed', panelCollapsed ? '1' : '0');
+    } catch {
+      // The sidebar still works when local preferences are unavailable.
+    }
+  }, [panelCollapsed]);
 
   // --- Theme initialization and listener ---
 
@@ -672,8 +717,8 @@ const App = () => {
       if (action === 'help-keyboard-shortcuts') {
         openKeyboardHelp();
       }
-      if (action === 'new-tab') {
-        newTab();
+      if (action === 'new-csv') {
+        handleCreateNewCsv();
       }
       if (action === 'close-tab') {
         const id = useGridStore.getState().activeTabId;
@@ -682,7 +727,7 @@ const App = () => {
     });
 
     return () => dispose();
-  }, [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, newTab, openFilterHelp, openKeyboardHelp]);
+  }, [handleOpen, handleSave, handleSaveAs, handleSaveFilteredAs, handleCloseTab, handleCreateNewCsv, openFilterHelp, openKeyboardHelp]);
 
   useEffect(() => {
     const handleOpenRequest = async (targetPath: string) => {
@@ -769,17 +814,6 @@ const App = () => {
     };
   }, [openFile, refreshRecents]);
 
-  // Auto-collapse sidebar when data loads, auto-expand when empty
-  const hasData = headers.length > 0;
-  useEffect(() => {
-    if (hasData && !prevHasDataRef.current) {
-      setPanelCollapsed(true);
-    } else if (!hasData && prevHasDataRef.current) {
-      setPanelCollapsed(false);
-    }
-    prevHasDataRef.current = hasData;
-  }, [hasData]);
-
   const gridContent = useMemo(() => {
     if (!headers.length) return null;
 
@@ -844,7 +878,13 @@ const App = () => {
         onToggleWrap={toggleWrapText}
         onOpenHelp={openFilterHelp}
       />
-      <TabBar onOpen={handleOpen} />
+      <TabBar onNew={handleCreateNewCsv} onClose={(tabId) => { void handleCloseTab(tabId); }} />
+      {notice && (
+        <div className="app-notice" role="status">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss notification">×</button>
+        </div>
+      )}
       <div
         className={`viewport${isPanelResizing ? ' viewport--resizing' : ''}${panelCollapsed ? ' viewport--panel-collapsed' : ''}`}
         style={{ gridTemplateColumns: panelCollapsed ? '0px 1fr' : `${panelWidth}px 1fr` }}
@@ -858,12 +898,27 @@ const App = () => {
         onToggleSelect={handleToggleRecentSelection}
         onMergeSelected={handleMergeSelectedRecents}
         onRemove={handleRemoveRecent}
+        onReveal={handleRevealRecent}
+        onClear={handleClearRecents}
             emptyState="No recent files yet."
           />
           {!panelCollapsed && (
             <div
               className="panel-resize-handle"
               onMouseDown={startPanelResize}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const delta = event.key === 'ArrowLeft' ? -16 : 16;
+                setPanelWidth((width) => Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, width + delta)));
+              }}
+              role="separator"
+              aria-label="Resize Recent Files sidebar"
+              aria-orientation="vertical"
+              aria-valuemin={MIN_PANEL_WIDTH}
+              aria-valuemax={MAX_PANEL_WIDTH}
+              aria-valuenow={panelWidth}
+              tabIndex={0}
             />
           )}
         </div>
@@ -872,6 +927,7 @@ const App = () => {
             className={`panel-toggle${panelCollapsed ? ' panel-toggle--collapsed' : ''}`}
             onClick={togglePanel}
             title={panelCollapsed ? 'Show sidebar (⌘B)' : 'Hide sidebar (⌘B)'}
+            aria-label={panelCollapsed ? 'Show Recent Files sidebar' : 'Hide Recent Files sidebar'}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               {panelCollapsed ? (
@@ -916,31 +972,16 @@ const App = () => {
               {recentFiles.length > 0 && (
                 <div className="welcome-recents">
                   <h3 className="welcome-section-title">Recent Files</h3>
-                  <div className="welcome-recents-list">
-                    {recentFiles.slice(0, 5).map((file) => {
-                      const parts = file.path.replace(/\\/g, '/').split('/');
-                      const fileName = parts.pop() || file.path;
-                      const parentDir = parts.slice(-2).join('/');
-                      return (
-                        <button
-                          key={file.path}
-                          className="welcome-recent-item"
-                          onClick={() => handleOpenRecent(file.path)}
-                          title={file.path}
-                        >
-                          <div className="welcome-recent-icon">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                              <path d="M3 2h4l1.5 1.5H13a1 1 0 011 1V13a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                            </svg>
-                          </div>
-                          <div className="welcome-recent-text">
-                            <span className="welcome-recent-name">{fileName}</span>
-                            {parentDir && <span className="welcome-recent-path">{parentDir}</span>}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <RecentFilesPanel
+                    files={recentFiles}
+                    onOpen={handleOpenRecent}
+                    onLocate={handleLocateRecent}
+                    onRemove={handleRemoveRecent}
+                    onReveal={handleRevealRecent}
+                    emptyState="No recent files yet."
+                    variant="welcome"
+                    limit={5}
+                  />
                 </div>
               )}
 
@@ -966,7 +1007,15 @@ const App = () => {
         onThemeChange={handleThemeChange}
       />
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} section={helpSection} />
-      <StatusBar meta={meta} dirty={dirty} progress={progress} filteredRowCount={filteredRowCount} />
+      <StatusBar
+        meta={meta}
+        dirty={dirty}
+        progress={progress}
+        filteredRowCount={filteredRowCount}
+        delimiter={delimiter}
+        newline={newline}
+        hasUtf8Bom={hasUtf8Bom}
+      />
       <FindBar
         open={findBarOpen}
         focusToken={findBarFocusToken}

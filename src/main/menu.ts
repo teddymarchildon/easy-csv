@@ -3,9 +3,18 @@ import { app, BrowserWindow, Menu } from 'electron';
 type BuildAppMenuOptions = {
   getMainWindow: () => BrowserWindow | null;
   reopenMainWindow: () => void;
+  getRecentFiles: () => string[];
+  openRecentFile: (filePath: string) => void;
+  clearRecentFiles: () => void;
 };
 
-export const buildAppMenu = ({ getMainWindow, reopenMainWindow }: BuildAppMenuOptions) => {
+export const buildAppMenu = ({
+  getMainWindow,
+  reopenMainWindow,
+  getRecentFiles,
+  openRecentFile,
+  clearRecentFiles
+}: BuildAppMenuOptions) => {
   const sendMenuAction = (action: string) => {
     getMainWindow()?.webContents.send('menu:action', { action });
   };
@@ -29,10 +38,10 @@ export const buildAppMenu = ({ getMainWindow, reopenMainWindow }: BuildAppMenuOp
       label: 'File',
       submenu: [
         {
-          label: 'New Tab',
+          label: 'New CSV',
           accelerator: 'CmdOrCtrl+T',
           click: () => {
-            sendMenuAction('new-tab');
+            sendMenuAction('new-csv');
           }
         },
         {
@@ -41,6 +50,25 @@ export const buildAppMenu = ({ getMainWindow, reopenMainWindow }: BuildAppMenuOp
           click: () => {
             sendMenuAction('open');
           }
+        },
+        {
+          label: 'Open Recent',
+          submenu: [
+            ...getRecentFiles().map((filePath) => ({
+              label: filePath.split('/').pop() || filePath,
+              sublabel: filePath,
+              click: () => openRecentFile(filePath)
+            })),
+            ...(getRecentFiles().length > 0
+              ? [
+                  { type: 'separator' as const },
+                  {
+                    label: 'Clear Menu',
+                    click: clearRecentFiles
+                  }
+                ]
+              : [{ label: 'No Recent Files', enabled: false }])
+          ]
         },
         { type: 'separator' },
         {
@@ -98,7 +126,12 @@ export const buildAppMenu = ({ getMainWindow, reopenMainWindow }: BuildAppMenuOp
     },
     {
       label: 'View',
-      submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' }]
+      submenu: [
+        ...(!app.isPackaged
+          ? [{ role: 'reload' as const }, { role: 'toggleDevTools' as const }, { type: 'separator' as const }]
+          : []),
+        { role: 'togglefullscreen' }
+      ]
     },
     {
       role: 'window',

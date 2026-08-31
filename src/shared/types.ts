@@ -67,8 +67,10 @@ export interface RecentFile {
   path: string;
   openedAt: string;
   bookmark?: string;
-  status?: 'available' | 'missing';
+  status?: 'available' | 'missing' | 'permission-required';
 }
+
+export type CloseTabChoice = 'save' | 'discard' | 'cancel';
 
 export interface OpenRecentFileResult {
   document: CsvDocument;

@@ -61,4 +61,9 @@ export class RecentFileStore {
     store.set('recentFiles', next);
     return next;
   }
+
+  clear(): RecentFile[] {
+    store.set('recentFiles', []);
+    return [];
+  }
 }

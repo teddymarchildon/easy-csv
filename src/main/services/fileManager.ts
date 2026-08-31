@@ -57,6 +57,7 @@ export class FileManager {
     };
 
     this.recents.add(filePath, options?.bookmark);
+    app.addRecentDocument(filePath);
     logger.info(`Loaded CSV: ${filePath}`);
     return document;
   }
@@ -165,6 +166,7 @@ export class FileManager {
       await writeCsv(payload, this.onProgress);
       const saved = await stat(payload.filePath);
       this.recents.add(payload.filePath, options?.bookmark);
+      app.addRecentDocument(payload.filePath);
       logger.info(`Saved CSV: ${payload.filePath}`);
       return { ok: true, fileVersion: { mtimeMs: saved.mtimeMs, size: saved.size } };
     });

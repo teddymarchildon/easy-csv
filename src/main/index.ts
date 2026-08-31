@@ -3,7 +3,7 @@ import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import type { MergeRecentFilesPayload, OpenRecentFileResult, RecentFile, SavePayload, ThemeMode } from '@shared/types';
+import type { CloseTabChoice, MergeRecentFilesPayload, OpenRecentFileResult, RecentFile, SavePayload, ThemeMode } from '@shared/types';
 import { FileManager } from './services/fileManager';
 import { RecentFileStore } from './recentFiles';
 import { SettingsStore } from './settingsStore';
@@ -95,25 +95,47 @@ const enqueueOpenFile = (filePath: string) => {
 const isMacPermissionError = (error: unknown) =>
   process.platform === 'darwin' &&
   error instanceof Error &&
-  (error.message.includes('EPERM') || error.message.includes('operation not permitted'));
+  ((('code' in error) && (error.code === 'EPERM' || error.code === 'EACCES')) ||
+    error.message.includes('EPERM') ||
+    error.message.includes('EACCES') ||
+    error.message.toLowerCase().includes('operation not permitted') ||
+    error.message.toLowerCase().includes('permission denied'));
 
 const isMissingFileError = (error: unknown) =>
   error instanceof Error &&
   (('code' in error && error.code === 'ENOENT') || error.message.includes('ENOENT'));
 
 const hydrateRecentFile = async (recent: RecentFile): Promise<RecentFile> => {
+  let stopAccessing: (() => void) | undefined;
   try {
+    if (process.platform === 'darwin' && recent.bookmark) {
+      try {
+        stopAccessing = app.startAccessingSecurityScopedResource(recent.bookmark) as () => void;
+      } catch {
+        return { ...recent, status: 'permission-required' };
+      }
+    }
     await stat(recent.path);
     return { ...recent, status: 'available' };
   } catch (error) {
     if (isMissingFileError(error)) {
       return { ...recent, status: 'missing' };
     }
+    if (isMacPermissionError(error)) {
+      return { ...recent, status: 'permission-required' };
+    }
     return { ...recent, status: 'available' };
+  } finally {
+    stopAccessing?.();
   }
 };
 
 const listRecentFiles = async () => Promise.all(recents.list().map((recent) => hydrateRecentFile(recent)));
+
+const syncSystemRecentDocuments = () => {
+  app.clearRecentDocuments();
+  recents.list().slice().reverse().forEach((recent) => app.addRecentDocument(recent.path));
+};
 
 const promptToChooseRecentFileLocation = async ({
   filePath,
@@ -237,6 +259,25 @@ const openRecentFilesForMerge = async (pathA: string, pathB: string) => {
   return fileManager.mergeDocuments(documentA, documentB, [pathA, pathB]);
 };
 
+const refreshAppMenu = () => {
+  buildAppMenu({
+    getMainWindow: () => mainWindow,
+    reopenMainWindow: () => {
+      restoreMainWindow().catch((error) => logger.error(error));
+    },
+    getRecentFiles: () => recents.list().map((recent) => recent.path),
+    openRecentFile: (filePath) => {
+      handleOpenFileRequest(filePath).catch((error) => logger.error(error));
+    },
+    clearRecentFiles: () => {
+      recents.clear();
+      syncSystemRecentDocuments();
+      mainWindow?.webContents.send('recent:changed');
+      refreshAppMenu();
+    }
+  });
+};
+
 const flushPendingOpenFiles = () => {
   if (!mainWindow || mainWindow.isDestroyed() || !openFileEventsReady) {
     return;
@@ -281,12 +322,7 @@ const createWindow = async () => {
   bypassCloseConfirm = false;
   mainWindow.setDocumentEdited(false);
 
-  buildAppMenu({
-    getMainWindow: () => mainWindow,
-    reopenMainWindow: () => {
-      restoreMainWindow().catch((error) => logger.error(error));
-    }
-  });
+  refreshAppMenu();
 
   mainWindow.on('closed', () => {
     openFileEventsReady = false;
@@ -425,7 +461,26 @@ ipcMain.handle('dialog:open-file', async () => {
     ? (result as { bookmarks?: string[] }).bookmarks?.[0]
     : undefined;
 
-  return fileManager.open(filePath, { bookmark });
+  const document = await fileManager.open(filePath, { bookmark });
+  refreshAppMenu();
+  return document;
+});
+
+ipcMain.handle('dialog:confirm-close-tab', async (_event, fileName: string): Promise<CloseTabChoice> => {
+  if (!mainWindow) return 'cancel';
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Save', 'Cancel', "Don't Save"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: 'Save Changes?',
+    message: `Do you want to save the changes made to “${fileName}”?`,
+    detail: 'Your changes will be lost if you don’t save them.'
+  });
+  if (result.response === 0) return 'save';
+  if (result.response === 2) return 'discard';
+  return 'cancel';
 });
 
 ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
@@ -451,9 +506,17 @@ ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
   return result.filePath;
 });
 
-ipcMain.handle('file:load', async (_event, filePath: string) => openFileFromPath(absolutePathSchema.parse(filePath)));
+ipcMain.handle('file:load', async (_event, filePath: string) => {
+  const document = await openFileFromPath(absolutePathSchema.parse(filePath));
+  refreshAppMenu();
+  return document;
+});
 
-ipcMain.handle('recent:open', async (_event, filePath: string) => openRecentFile(absolutePathSchema.parse(filePath)));
+ipcMain.handle('recent:open', async (_event, filePath: string) => {
+  const result = await openRecentFile(absolutePathSchema.parse(filePath));
+  refreshAppMenu();
+  return result;
+});
 
 ipcMain.handle('file:merge-recents', async (_event, payload: MergeRecentFilesPayload) => {
   const parsed = mergePayloadSchema.parse(payload) as MergeRecentFilesPayload;
@@ -471,7 +534,9 @@ ipcMain.handle('file:save', async (_event, payload: SavePayload) => {
   if (bookmark) {
     pendingSaveBookmarks.delete(parsedPayload.filePath);
   }
-  return fileManager.save(parsedPayload, { bookmark });
+  const result = await fileManager.save(parsedPayload, { bookmark });
+  if (result.ok) refreshAppMenu();
+  return result;
 });
 
 ipcMain.handle('recent:list', () => listRecentFiles());
@@ -484,10 +549,24 @@ ipcMain.handle('recent:locate', async (_event, filePath: string) => {
   }
 
   recents.replace(filePath, located.filePath, located.bookmark);
+  syncSystemRecentDocuments();
+  refreshAppMenu();
   return listRecentFiles();
 });
 
-ipcMain.handle('recent:remove', (_event, filePath: string) => recents.remove(absolutePathSchema.parse(filePath)));
+ipcMain.handle('recent:remove', (_event, filePath: string) => {
+  const next = recents.remove(absolutePathSchema.parse(filePath));
+  syncSystemRecentDocuments();
+  refreshAppMenu();
+  return next;
+});
+
+ipcMain.handle('recent:clear', () => {
+  const next = recents.clear();
+  syncSystemRecentDocuments();
+  refreshAppMenu();
+  return next;
+});
 
 ipcMain.handle('file:reveal', async (_event, targetPath: string) => {
   targetPath = absolutePathSchema.parse(targetPath);

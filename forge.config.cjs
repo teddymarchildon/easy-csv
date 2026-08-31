@@ -3,6 +3,8 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 const { execSync } = require('child_process');
 const path = require('path');
 
+const APPLE_DISTRIBUTION_IDENTITY = 'Apple Distribution: Teddy Marchildon (55PJ732NTM)';
+
 module.exports = {
   outDir: 'forge-out',
   packagerConfig: {
@@ -51,7 +53,7 @@ module.exports = {
       ],
     },
     osxSign: {
-      identity: 'Apple Distribution: Teddy Marchildon (55PJ732NTM)',
+      identity: APPLE_DISTRIBUTION_IDENTITY,
       provisioningProfile: path.resolve(__dirname, 'EasyCSVPP.provisionprofile'),
       optionsForFile: (filePath) => {
         const isChildBinary = filePath.includes('.app/');

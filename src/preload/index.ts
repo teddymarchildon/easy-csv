@@ -13,7 +13,9 @@ const api: RendererApi = {
   getRecentFiles: () => ipcRenderer.invoke('recent:list'),
   locateRecentFile: (path) => ipcRenderer.invoke('recent:locate', path),
   removeRecentFile: (path) => ipcRenderer.invoke('recent:remove', path),
+  clearRecentFiles: () => ipcRenderer.invoke('recent:clear'),
   revealInFinder: (targetPath) => ipcRenderer.invoke('file:reveal', targetPath),
+  confirmCloseTab: (fileName) => ipcRenderer.invoke('dialog:confirm-close-tab', fileName),
   getTheme: () => ipcRenderer.invoke('settings:get-theme'),
   setTheme: (mode) => ipcRenderer.invoke('settings:set-theme', mode),
   onThemeChange: (callback) => {
@@ -42,6 +44,11 @@ const api: RendererApi = {
     return () => {
       ipcRenderer.removeListener('file:open-request', listener);
     };
+  },
+  onRecentFilesChange: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('recent:changed', listener);
+    return () => ipcRenderer.removeListener('recent:changed', listener);
   },
   onMenuAction: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: { action: Parameters<typeof callback>[0] }) => {

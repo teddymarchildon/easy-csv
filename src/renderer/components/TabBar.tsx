@@ -2,16 +2,16 @@ import { useCallback, useRef, useState } from 'react';
 import { useGridStore } from '../state/gridStore';
 
 interface TabBarProps {
-  onOpen(): void;
+  onNew(): void;
+  onClose(tabId: string): void;
 }
 
-const TabBar = ({ onOpen }: TabBarProps) => {
+const TabBar = ({ onNew, onClose }: TabBarProps) => {
   const tabs = useGridStore((s) => s.tabs);
   const activeTabId = useGridStore((s) => s.activeTabId);
   const activeDirty = useGridStore((s) => s.dirty);
   const activeFilePath = useGridStore((s) => s.filePath);
   const switchTab = useGridStore((s) => s.switchTab);
-  const closeTab = useGridStore((s) => s.closeTab);
   const reorderTabs = useGridStore((s) => s.reorderTabs);
 
   const dragIndexRef = useRef<number | null>(null);
@@ -35,39 +35,15 @@ const TabBar = ({ onOpen }: TabBarProps) => {
     [activeTabId, activeDirty]
   );
 
-  const handleCloseTab = useCallback(
-    (tabId: string) => {
-      const state = useGridStore.getState();
-      let tabDirty = false;
-
-      if (tabId === state.activeTabId) {
-        tabDirty = state.dirty;
-      } else {
-        const snap = state._tabSnapshots[tabId];
-        tabDirty = snap?.dirty ?? false;
-      }
-
-      if (tabDirty) {
-        const confirmed = window.confirm(
-          'This tab has unsaved changes. Close it anyway?'
-        );
-        if (!confirmed) return;
-      }
-
-      closeTab(tabId);
-    },
-    [closeTab]
-  );
-
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, tabId: string) => {
       // Middle-click to close
       if (e.button === 1) {
         e.preventDefault();
-        handleCloseTab(tabId);
+        onClose(tabId);
       }
     },
-    [handleCloseTab]
+    [onClose]
   );
 
   const getTooltip = useCallback(
@@ -161,7 +137,7 @@ const TabBar = ({ onOpen }: TabBarProps) => {
               className="tab__close"
               onClick={(e) => {
                 e.stopPropagation();
-                handleCloseTab(tab.id);
+                onClose(tab.id);
               }}
               title="Close tab"
             >
@@ -177,7 +153,7 @@ const TabBar = ({ onOpen }: TabBarProps) => {
           </div>
         );
       })}
-      <button className="tab-bar__new" onClick={onOpen} title="Open File (⌘O)">
+      <button className="tab-bar__new" onClick={onNew} title="New CSV (⌘T)" aria-label="New CSV">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path
             d="M6 1v10M1 6h10"
