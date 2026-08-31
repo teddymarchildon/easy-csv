@@ -1,4 +1,4 @@
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Virtualizer } from '@tanstack/react-virtual';
 import type { CellValue, ColumnProfile } from '@shared/types';
@@ -41,6 +41,7 @@ interface DataGridProps {
   searchMatches?: SearchMatch[];
   currentSearchMatch?: SearchMatch | null;
   wrapText?: boolean;
+  onToggleWrap(): void;
   onActiveColumnChange?: (columnIndex: number | null) => void;
 }
 
@@ -73,10 +74,12 @@ const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
 const FILTER_HELP_DISMISSED_KEY = 'sheetEditor.filterHelpDismissed';
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, sorts, onFilterChange, onSetSort, onClearSort, onClearAllSorts, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, wrapText, onActiveColumnChange }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, sorts, onFilterChange, onSetSort, onClearSort, onClearAllSorts, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, wrapText, onToggleWrap, onActiveColumnChange }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const cellEditorRef = useRef<HTMLTextAreaElement>(null);
   const [editing, setEditing] = useState<{ rowIndex: number; columnIndex: number } | null>(null);
   const [editingHeader, setEditingHeader] = useState<number | null>(null);
   const [draftValue, setDraftValue] = useState('');
@@ -302,6 +305,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
 
   // We need a ref to the virtualizer so the effect above can access it
   const rowVirtualizerRef = useRef<Virtualizer<HTMLDivElement, Element> | null>(null);
+  const expandedRowIndex = wrapText && selected?.type === 'cells'
+    ? selected.range.focusRow
+    : null;
 
   const rowVirtualizer = useVirtualizer({
     count: filteredRows.length,
@@ -328,10 +334,18 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const virtualPaddingLeft = virtualColumnStart;
   const virtualPaddingRight = Math.max(0, columnVirtualizer.getTotalSize() - virtualColumnEnd);
 
-  // Re-measure all rows when wrapText toggles or column widths change
+  // Re-measure all rows when wrapping, column widths, or the expanded row changes.
   useEffect(() => {
     rowVirtualizerRef.current?.measure();
-  }, [wrapText, columnWidths]);
+  }, [wrapText, columnWidths, expandedRowIndex]);
+
+  useLayoutEffect(() => {
+    const editor = cellEditorRef.current;
+    if (!editor) return;
+    editor.style.height = 'auto';
+    editor.style.height = `${Math.max(32, editor.scrollHeight)}px`;
+    rowVirtualizerRef.current?.measure();
+  }, [draftValue, editing, wrapText]);
 
   useEffect(() => {
     columnVirtualizer.measure();
@@ -789,10 +803,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     // backdrop-filter on .data-grid creates a new containing block for
     // position:fixed, so we must convert viewport coords to grid-relative.
     const gridRect = gridRef.current!.getBoundingClientRect();
-    const menuWidth = 190;
-    const menuHeight = 440;
-    const x = Math.max(0, Math.min(e.clientX - gridRect.left, gridRect.width - menuWidth - 8));
-    const y = Math.max(0, Math.min(e.clientY - gridRect.top, gridRect.height - menuHeight - 8));
+    const x = e.clientX - gridRect.left;
+    const y = e.clientY - gridRect.top;
     setContextMenu({ x, y, sourceRowIndex: sourceIndex, columnIndex });
   };
 
@@ -806,14 +818,51 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     }
 
     const gridRect = gridRef.current!.getBoundingClientRect();
-    const menuWidth = 190;
-    const menuHeight = 320;
-    const x = Math.max(0, Math.min(e.clientX - gridRect.left, gridRect.width - menuWidth - 8));
-    const y = Math.max(0, Math.min(e.clientY - gridRect.top, gridRect.height - menuHeight - 8));
+    const x = e.clientX - gridRect.left;
+    const y = e.clientY - gridRect.top;
     setContextMenu({ x, y, sourceRowIndex: 0, columnIndex, isHeader: true });
   };
 
   const closeContextMenu = () => setContextMenu(null);
+
+  useLayoutEffect(() => {
+    if (!contextMenu) return;
+    const menu = contextMenuRef.current;
+    const grid = gridRef.current;
+    if (!menu || !grid) return;
+
+    const gridRect = grid.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(contextMenu.x, gridRect.width - menuRect.width - 8));
+    const top = Math.max(8, Math.min(contextMenu.y, gridRect.height - menuRect.height - 8));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [contextMenu]);
+
+  const handleContextMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const menu = contextMenuRef.current;
+    if (!menu) return;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    if (!items.length) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    let nextIndex: number | null = null;
+    if (e.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length;
+    if (e.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length;
+    if (e.key === 'Home') nextIndex = 0;
+    if (e.key === 'End') nextIndex = items.length - 1;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeContextMenu();
+      gridRef.current?.focus();
+      return;
+    }
+    if (nextIndex !== null) {
+      e.preventDefault();
+      items[nextIndex].focus();
+    }
+  };
 
   // --- Context menu move helpers ---
   const getSelectedRowRange = (): { fromStart: number; fromEnd: number } | null => {
@@ -1478,7 +1527,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                 key={virtualRow.key}
                 ref={wrapText ? rowVirtualizer.measureElement : undefined}
                 data-index={virtualRow.index}
-                className="data-grid__row"
+                className={classNames('data-grid__row', {
+                  'data-grid__row--expanded': expandedRowIndex === sourceIndex
+                })}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -1524,24 +1575,45 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                         handleCellClick(virtualRow.index, columnIndex, e);
                       }}
                       onContextMenu={(e) => handleContextMenu(e, virtualRow.index, columnIndex)}
+                      title={wrapText && !isEditing ? String(cellValue) : undefined}
                     >
                       {isEditing ? (
-                        <input
-                          autoFocus
-                          value={draftValue}
-                          onChange={(event) => setDraftValue(event.target.value)}
-                          onBlur={commitEdit}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              commitEdit();
-                            } else if (event.key === 'Escape') {
-                              cancelEdit();
-                            } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                              event.preventDefault();
-                              commitEditAndNavigate(event.key as 'ArrowUp' | 'ArrowDown');
-                            }
-                          }}
-                        />
+                        wrapText ? (
+                          <textarea
+                            ref={cellEditorRef}
+                            className="data-grid__cell-editor"
+                            autoFocus
+                            value={draftValue}
+                            onChange={(event) => setDraftValue(event.target.value)}
+                            onBlur={commitEdit}
+                            aria-label="Edit cell. Press Enter to save or Shift+Enter for a new line."
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                commitEdit();
+                              } else if (event.key === 'Escape') {
+                                cancelEdit();
+                              }
+                            }}
+                          />
+                        ) : (
+                          <input
+                            autoFocus
+                            value={draftValue}
+                            onChange={(event) => setDraftValue(event.target.value)}
+                            onBlur={commitEdit}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                commitEdit();
+                              } else if (event.key === 'Escape') {
+                                cancelEdit();
+                              } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                                event.preventDefault();
+                                commitEditAndNavigate(event.key as 'ArrowUp' | 'ArrowDown');
+                              }
+                            }}
+                          />
+                        )
                       ) : (
                         cellValue
                       )}
@@ -1570,81 +1642,109 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className="context-menu"
           style={{ top: contextMenu.y, left: contextMenu.x }}
+          role="menu"
+          aria-label={contextMenu.isHeader ? 'Column actions' : 'Cell actions'}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={handleContextMenuKeyDown}
         >
           <button
             className="context-menu__item"
+            role="menuitem"
             onClick={() => { handleCut(); closeContextMenu(); }}
           >
             Cut
           </button>
           <button
             className="context-menu__item"
+            role="menuitem"
             onClick={() => { handleCopy(); closeContextMenu(); }}
           >
             Copy
           </button>
           <button
             className="context-menu__item"
+            role="menuitem"
             onClick={() => { handlePaste(); closeContextMenu(); }}
           >
             Paste
           </button>
-          <div className="context-menu__separator" />
+          <div className="context-menu__separator" role="separator" />
+          <button
+            className="context-menu__item context-menu__item--checkable"
+            role="menuitemcheckbox"
+            aria-checked={Boolean(wrapText)}
+            onClick={() => { onToggleWrap(); closeContextMenu(); }}
+          >
+            <span>Wrap Text in Sheet</span>
+            <span className="context-menu__check" aria-hidden="true">{wrapText ? '✓' : ''}</span>
+          </button>
+          <div className="context-menu__separator" role="separator" />
           {!contextMenu.isHeader && (
             <>
               <button
                 className="context-menu__item"
+                role="menuitem"
                 onClick={() => { onInsertRowAt(contextMenu.sourceRowIndex); closeContextMenu(); }}
               >
                 Insert Row Above
               </button>
               <button
                 className="context-menu__item"
+                role="menuitem"
                 onClick={() => { onInsertRowAt(contextMenu.sourceRowIndex + 1); closeContextMenu(); }}
               >
                 Insert Row Below
               </button>
-              <div className="context-menu__separator" />
+              <div className="context-menu__separator" role="separator" />
               <button
                 className={classNames('context-menu__item', { 'context-menu__item--disabled': (getSelectedRowRange()?.fromStart ?? 0) <= 0 })}
+                role="menuitem"
+                disabled={(getSelectedRowRange()?.fromStart ?? 0) <= 0}
                 onClick={handleMoveRowUp}
               >
                 Move Row Up
               </button>
               <button
                 className={classNames('context-menu__item', { 'context-menu__item--disabled': (getSelectedRowRange()?.fromEnd ?? rows.length - 1) >= rows.length - 1 })}
+                role="menuitem"
+                disabled={(getSelectedRowRange()?.fromEnd ?? rows.length - 1) >= rows.length - 1}
                 onClick={handleMoveRowDown}
               >
                 Move Row Down
               </button>
-              <div className="context-menu__separator" />
+              <div className="context-menu__separator" role="separator" />
             </>
           )}
           {contextMenu.isHeader && (
             <>
               <button
                 className="context-menu__item"
+                role="menuitem"
                 onClick={() => { onSetSort(contextMenu.columnIndex, 'asc'); closeContextMenu(); }}
               >
                 Sort Ascending
               </button>
               <button
                 className="context-menu__item"
+                role="menuitem"
                 onClick={() => { onSetSort(contextMenu.columnIndex, 'desc'); closeContextMenu(); }}
               >
                 Sort Descending
               </button>
               <button
                 className="context-menu__item"
+                role="menuitem"
                 onClick={() => { onSetSort(contextMenu.columnIndex, 'asc', true); closeContextMenu(); }}
               >
                 Add to Sort
               </button>
               <button
                 className={classNames('context-menu__item', { 'context-menu__item--disabled': !getSortForColumn(contextMenu.columnIndex) })}
+                role="menuitem"
+                disabled={!getSortForColumn(contextMenu.columnIndex)}
                 onClick={() => { onClearSort(contextMenu.columnIndex); closeContextMenu(); }}
               >
                 Clear Sort on This Column
@@ -1652,43 +1752,51 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
               {sorts.length > 0 && (
                 <button
                   className="context-menu__item"
+                  role="menuitem"
                   onClick={() => { onClearAllSorts(); closeContextMenu(); }}
                 >
                   Clear All Sorts
                 </button>
               )}
-              <div className="context-menu__separator" />
+              <div className="context-menu__separator" role="separator" />
             </>
           )}
           <button
             className="context-menu__item"
+            role="menuitem"
             onClick={() => { onInsertColumnAt(contextMenu.columnIndex); closeContextMenu(); }}
           >
             Insert Column Left
           </button>
           <button
             className="context-menu__item"
+            role="menuitem"
             onClick={() => { onInsertColumnAt(contextMenu.columnIndex + 1); closeContextMenu(); }}
           >
             Insert Column Right
           </button>
-          <div className="context-menu__separator" />
+          <div className="context-menu__separator" role="separator" />
           <button
             className={classNames('context-menu__item', { 'context-menu__item--disabled': (getSelectedColumnRange()?.fromStart ?? 0) <= 0 })}
+            role="menuitem"
+            disabled={(getSelectedColumnRange()?.fromStart ?? 0) <= 0}
             onClick={handleMoveColumnLeft}
           >
             Move Column Left
           </button>
           <button
             className={classNames('context-menu__item', { 'context-menu__item--disabled': (getSelectedColumnRange()?.fromEnd ?? headers.length - 1) >= headers.length - 1 })}
+            role="menuitem"
+            disabled={(getSelectedColumnRange()?.fromEnd ?? headers.length - 1) >= headers.length - 1}
             onClick={handleMoveColumnRight}
           >
             Move Column Right
           </button>
-          <div className="context-menu__separator" />
+          <div className="context-menu__separator" role="separator" />
           {!contextMenu.isHeader && (
             <button
               className="context-menu__item context-menu__item--danger"
+              role="menuitem"
               onClick={() => { onDeleteRow(contextMenu.sourceRowIndex); closeContextMenu(); setSelected(null); }}
             >
               Delete Row
@@ -1696,6 +1804,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
           )}
           <button
             className="context-menu__item context-menu__item--danger"
+            role="menuitem"
             onClick={() => { onDeleteColumn(contextMenu.columnIndex); closeContextMenu(); setSelected(null); }}
           >
             Delete Column

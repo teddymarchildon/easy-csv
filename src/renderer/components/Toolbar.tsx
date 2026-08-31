@@ -112,12 +112,6 @@ const IconMore = () => (
   </svg>
 );
 
-const IconCheck = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 8.5l3.5 3.5L13 5" />
-  </svg>
-);
-
 const Toolbar = ({
   onOpen,
   onSave,
@@ -198,6 +192,15 @@ const Toolbar = ({
       <button onClick={onRedo} disabled={!canRedo} title={redoTitle}>
         <IconRedo /> Redo
       </button>
+      <button
+        className={wrapText ? 'active' : undefined}
+        onClick={onToggleWrap}
+        disabled={!hasData}
+        aria-pressed={wrapText}
+        title={`${wrapText ? 'Disable' : 'Enable'} text wrapping for this sheet`}
+      >
+        <IconWrapText /> Wrap
+      </button>
       <div className="toolbar-more-wrapper">
         <button
           ref={moreBtnRef}
@@ -224,20 +227,6 @@ const Toolbar = ({
             >
               <IconAddCol />
               <span>Add Column</span>
-            </button>
-            <div className="toolbar-menu__separator" />
-            <button
-              className="toolbar-menu__item"
-              disabled={!hasData}
-              onClick={() => menuAction(onToggleWrap)}
-            >
-              <IconWrapText />
-              <span>Wrap Text</span>
-              {wrapText && (
-                <span className="toolbar-menu__check">
-                  <IconCheck />
-                </span>
-              )}
             </button>
             <div className="toolbar-menu__separator" />
             <button

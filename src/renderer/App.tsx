@@ -46,7 +46,6 @@ const App = () => {
   const [lastSearchTerm, setLastSearchTerm] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
-  const [wrapText, setWrapText] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState<number | null>(null);
   const panelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -54,7 +53,6 @@ const App = () => {
   const { openViaDialog, openFile, save, saveAs, saveFilteredAs } = useFileHandlers();
 
   const togglePanel = useCallback(() => setPanelCollapsed((prev) => !prev), []);
-  const toggleWrapText = useCallback(() => setWrapText((prev) => !prev), []);
   const openFilterHelp = useCallback(() => {
     setHelpSection('filter');
     setHelpOpen(true);
@@ -85,6 +83,8 @@ const App = () => {
   const setSort = useGridStore((s) => s.setSort);
   const clearSort = useGridStore((s) => s.clearSort);
   const clearAllSorts = useGridStore((s) => s.clearAllSorts);
+  const wrapText = useGridStore((s) => s.wrapText);
+  const toggleWrapText = useGridStore((s) => s.toggleWrapText);
   const updateCell = useGridStore((s) => s.updateCell);
   const updateHeader = useGridStore((s) => s.updateHeader);
   const addRow = useGridStore((s) => s.addRow);
@@ -849,10 +849,11 @@ const App = () => {
         searchMatches={searchMatches}
         currentSearchMatch={currentSearch}
         wrapText={wrapText}
+        onToggleWrap={toggleWrapText}
         onActiveColumnChange={setActiveColumnIndex}
       />
     );
-  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, insertRowAt, insertColumnAt, removeRow, removeColumn, moveRows, moveColumns, beginBatch, commitBatch, searchTerm, searchMatches, currentMatchIndex, wrapText, openFilterHelp, handleSearchNextAndFocusGrid, handleSearchPrevAndFocusGrid, handleFindBarClose]);
+  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, insertRowAt, insertColumnAt, removeRow, removeColumn, moveRows, moveColumns, beginBatch, commitBatch, searchTerm, searchMatches, currentMatchIndex, wrapText, toggleWrapText, openFilterHelp, handleSearchNextAndFocusGrid, handleSearchPrevAndFocusGrid, handleFindBarClose]);
 
   return (
     <div className="app-shell">

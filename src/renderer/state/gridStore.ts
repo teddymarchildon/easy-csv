@@ -75,6 +75,7 @@ interface TabSnapshot {
   columnWidths: Record<number, number>;
   filters: Record<number, string>;
   sorts: SortRule[];
+  wrapText: boolean;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
   _batchDepth: number;
@@ -88,6 +89,15 @@ interface TabSnapshot {
 
 const MAX_UNDO_HISTORY = 50;
 const COALESCE_WINDOW_MS = 2000;
+const WRAP_TEXT_PREFERENCE_KEY = 'rowly.wrapText';
+
+const readWrapTextPreference = (): boolean => {
+  try {
+    return window.localStorage.getItem(WRAP_TEXT_PREFERENCE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
 
 let _nextTabId = 1;
 const generateTabId = (): string => `tab-${_nextTabId++}`;
@@ -103,6 +113,7 @@ interface GridState extends Snapshot {
   columnWidths: Record<number, number>;
   filters: Record<number, string>;
   sorts: SortRule[];
+  wrapText: boolean;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
 
@@ -144,6 +155,7 @@ interface GridState extends Snapshot {
   setSort: (columnIndex: number, direction: SortDirection, additive?: boolean) => void;
   clearSort: (columnIndex: number) => void;
   clearAllSorts: () => void;
+  toggleWrapText: () => void;
   hasActiveFilters: () => boolean;
   getFilteredRows: () => CellValue[][];
   clear: () => void;
@@ -204,6 +216,7 @@ const captureActiveTab = (state: GridState): TabSnapshot => ({
   columnWidths: { ...state.columnWidths },
   filters: { ...state.filters },
   sorts: [...state.sorts],
+  wrapText: state.wrapText,
   undoStack: [...state.undoStack],
   redoStack: [...state.redoStack],
   _batchDepth: state._batchDepth,
@@ -229,6 +242,7 @@ const restoreFromTabSnapshot = (
   columnWidths: snap.columnWidths,
   filters: snap.filters,
   sorts: snap.sorts,
+  wrapText: snap.wrapText,
   undoStack: snap.undoStack,
   redoStack: snap.redoStack,
   _batchDepth: snap._batchDepth,
@@ -418,6 +432,7 @@ export const useGridStore = create<GridState>()((set, get) => {
     columnWidths: {},
     filters: {},
     sorts: [],
+    wrapText: readWrapTextPreference(),
     undoStack: [],
     redoStack: [],
     _batchDepth: 0,
@@ -910,6 +925,17 @@ export const useGridStore = create<GridState>()((set, get) => {
         ...state,
         sorts: []
       })),
+
+    toggleWrapText: () =>
+      set((state) => {
+        const wrapText = !state.wrapText;
+        try {
+          window.localStorage.setItem(WRAP_TEXT_PREFERENCE_KEY, wrapText ? '1' : '0');
+        } catch {
+          // The in-memory, per-tab setting still works if storage is unavailable.
+        }
+        return { wrapText };
+      }),
 
     hasActiveFilters: () => {
       const { filters } = get();
