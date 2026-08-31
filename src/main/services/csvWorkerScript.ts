@@ -1,7 +1,9 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, open, rename, stat, unlink } from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import Papa from 'papaparse';
-import type { CellValue, SavePayload } from '@shared/types';
+import type { CellValue, CsvNewline, FileVersion, SavePayload } from '@shared/types';
 
 type WorkerTask =
   | {
@@ -22,36 +24,79 @@ type WorkerResponse =
         headers: string[];
         rows: CellValue[][];
         delimiter: string;
-        newline: '\n' | '\r\n';
+        newline: CsvNewline;
+        hasFinalNewline: boolean;
+        hasUtf8Bom: boolean;
+        fileVersion: FileVersion;
       };
     }
   | { type: 'written'; filePath: string };
 
-const detectDelimiter = (sample: string): string => {
-  const candidates: Record<string, number> = {
-    ',': 0,
-    '\t': 0,
-    ';': 0,
-    '|': 0
-  };
-
-  for (const char of sample) {
-    if (char in candidates) {
-      candidates[char] += 1;
-    }
-  }
-
-  return (
-    Object.entries(candidates).sort((a, b) => b[1] - a[1])[0]?.[0] ??
-    ','
-  );
-};
-
-const detectNewline = (input: string): '\n' | '\r\n' => {
+const detectNewline = (input: string): CsvNewline => {
   if (input.includes('\r\n')) {
     return '\r\n';
   }
+  if (input.includes('\r')) {
+    return '\r';
+  }
   return '\n';
+};
+
+const detectDelimiter = (input: string, newline: CsvNewline): string => {
+  const candidates = [',', '\t', ';', '|'];
+  let best = { delimiter: ',', score: Number.NEGATIVE_INFINITY };
+
+  for (const delimiter of candidates) {
+    const sample = Papa.parse<string[]>(input, {
+      delimiter,
+      newline,
+      preview: 25,
+      skipEmptyLines: false
+    });
+    const rows = sample.data.filter((row) => !(row.length === 1 && row[0] === ''));
+    const counts = new Map<number, number>();
+    for (const row of rows) counts.set(row.length, (counts.get(row.length) ?? 0) + 1);
+    const [columnCount = 1, matchingRows = 0] = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0] ?? [];
+    const quoteErrors = sample.errors.filter((error) => error.type === 'Quotes').length;
+    const score = matchingRows * 100 + columnCount - quoteErrors * 10_000;
+    if (columnCount > 1 && score > best.score) best = { delimiter, score };
+  }
+
+  return best.delimiter;
+};
+
+const atomicWriteFile = async (filePath: string, contents: string): Promise<FileVersion> => {
+  const directory = path.dirname(filePath);
+  const temporaryPath = path.join(directory, `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
+  let existingMode: number | undefined;
+
+  try {
+    existingMode = (await stat(filePath)).mode;
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+      throw error;
+    }
+  }
+
+  try {
+    const handle = await open(temporaryPath, 'wx', existingMode);
+    try {
+      await handle.writeFile(contents, 'utf-8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (existingMode !== undefined) {
+      await chmod(temporaryPath, existingMode);
+    }
+    await rename(temporaryPath, filePath);
+    const saved = await stat(filePath);
+    return { mtimeMs: saved.mtimeMs, size: saved.size };
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
 };
 
 const task = workerData as WorkerTask;
@@ -70,19 +115,44 @@ switch (task.kind) {
         filePath: task.filePath
       });
 
-      const fileBuffer = await readFile(task.filePath);
-      const fileText = fileBuffer.toString('utf-8');
+      const fileHandle = await open(task.filePath, 'r');
+      let fileBuffer: Buffer;
+      let fileStats;
+      try {
+        [fileBuffer, fileStats] = await Promise.all([fileHandle.readFile(), fileHandle.stat()]);
+      } finally {
+        await fileHandle.close();
+      }
+      const hasUtf8Bom = fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf;
+      const contents = hasUtf8Bom ? fileBuffer.subarray(3) : fileBuffer;
+      let fileText: string;
+      try {
+        fileText = new TextDecoder('utf-8', { fatal: true }).decode(contents);
+      } catch {
+        throw new Error('This file is not valid UTF-8. Rowly did not open it to avoid corrupting its contents.');
+      }
       const newline = detectNewline(fileText);
-      const delimiter = task.delimiter ?? detectDelimiter(fileText.slice(0, 4096));
+      const hasFinalNewline = fileText.endsWith('\n') || fileText.endsWith('\r');
+      const delimiter = task.delimiter ?? detectDelimiter(fileText, newline);
 
-      const { data } = Papa.parse<string[]>(fileText, {
+      const parsed = Papa.parse<string[]>(fileText, {
         delimiter,
         newline,
-        skipEmptyLines: true
+        skipEmptyLines: false
       });
+      const fatalErrors = parsed.errors.filter((error) => error.type === 'Quotes');
+      if (fatalErrors.length) {
+        const first = fatalErrors[0];
+        throw new Error(`Could not safely parse CSV near row ${first.row ?? 'unknown'}: ${first.message}`);
+      }
+
+      const data = parsed.data;
+      if (hasFinalNewline && data.length > 0 && data[data.length - 1]?.length === 1 && data[data.length - 1][0] === '') {
+        data.pop();
+      }
 
       const [headerRow = [], ...rows] = data;
-      const headers = headerRow.map((value, index) => value || `Column ${index + 1}`);
+      const headers = headerRow;
 
       emit({
         type: 'progress',
@@ -93,7 +163,15 @@ switch (task.kind) {
 
       emit({
         type: 'result',
-        payload: { headers, rows, delimiter, newline }
+        payload: {
+          headers,
+          rows,
+          delimiter,
+          newline,
+          hasFinalNewline,
+          hasUtf8Bom,
+          fileVersion: { mtimeMs: fileStats.mtimeMs, size: fileStats.size }
+        }
       });
     })().catch((error) => {
       throw error;
@@ -114,10 +192,9 @@ switch (task.kind) {
         filePath
       });
 
-      const normalizedHeaders = headers.map((header, index) => header || `Column ${index + 1}`);
-      const csvText = Papa.unparse(
+      let csvText = Papa.unparse(
         {
-          fields: normalizedHeaders,
+          fields: headers,
           data: rows
         },
         {
@@ -125,7 +202,13 @@ switch (task.kind) {
           newline
         }
       );
-      await writeFile(filePath, csvText, 'utf-8');
+      if (task.payload.hasFinalNewline) {
+        csvText += newline;
+      }
+      if (task.payload.hasUtf8Bom) {
+        csvText = `\ufeff${csvText}`;
+      }
+      await atomicWriteFile(filePath, csvText);
       emit({
         type: 'progress',
         stage: 'writing',

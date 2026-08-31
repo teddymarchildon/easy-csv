@@ -4,3 +4,6 @@ interface Window {
   api: import("./src/preload/types").RendererApi;
 }
 
+interface File {
+  path: string;
+}

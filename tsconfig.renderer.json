@@ -3,6 +3,8 @@
     "target": "es2022",
     "useDefineForClassFields": true,
     "module": "esnext",
+    "jsx": "react-jsx",
+    "strict": true,
     "lib": ["dom", "dom.iterable", "esnext"],
     "moduleResolution": "bundler",
     "skipLibCheck": true,
@@ -23,4 +25,3 @@
     "components.d.ts"
   ]
 }
-

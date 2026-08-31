@@ -1,20 +1,10 @@
 import { useCallback } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { useGridStore } from '../state/gridStore';
 
 export const useFileHandlers = () => {
   const openTab = useGridStore((state) => state.openTab);
   const switchTab = useGridStore((state) => state.switchTab);
   const markSaved = useGridStore((state) => state.markSaved);
-  const snapshot = useGridStore(
-    useShallow((state) => ({
-      headers: state.headers,
-      rows: state.rows,
-      delimiter: state.delimiter,
-      newline: state.newline,
-      filePath: state.filePath
-    }))
-  );
 
   const openViaDialog = useCallback(async () => {
     const document = await window.api.openFileViaDialog();
@@ -59,6 +49,7 @@ export const useFileHandlers = () => {
 
   const save = useCallback(
     async (options?: { saveAs?: boolean }) => {
+      const snapshot = useGridStore.getState();
       const targetPath =
         !snapshot.filePath || options?.saveAs
           ? await window.api.chooseSaveLocation(snapshot.filePath ?? undefined)
@@ -68,18 +59,31 @@ export const useFileHandlers = () => {
         return;
       }
 
-      await window.api.saveFile({
+      const payload = {
         filePath: targetPath,
         headers: snapshot.headers,
         rows: snapshot.rows,
         delimiter: snapshot.delimiter,
-        newline: snapshot.newline
-      });
+        newline: snapshot.newline,
+        hasFinalNewline: snapshot.hasFinalNewline,
+        hasUtf8Bom: snapshot.hasUtf8Bom,
+        expectedVersion: targetPath === snapshot.filePath ? snapshot.fileVersion : undefined
+      };
 
-      markSaved(targetPath);
+      let result = await window.api.saveFile(payload);
+      if (!result.ok) {
+        const overwrite = window.confirm(
+          'This file changed on disk after Rowly opened it. Overwrite the newer version?'
+        );
+        if (!overwrite) return;
+        result = await window.api.saveFile({ ...payload, force: true });
+      }
+
+      if (!result.ok) return;
+      markSaved(targetPath, result.fileVersion);
       return targetPath;
     },
-    [snapshot, markSaved]
+    [markSaved]
   );
 
   const saveFilteredAs = useCallback(async () => {
@@ -94,7 +98,9 @@ export const useFileHandlers = () => {
       headers,
       rows: filteredRows,
       delimiter,
-      newline
+      newline,
+      hasFinalNewline: true,
+      hasUtf8Bom: false
     });
 
     return targetPath;

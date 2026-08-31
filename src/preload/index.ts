@@ -52,6 +52,12 @@ const api: RendererApi = {
       ipcRenderer.removeListener('menu:action', listener);
     };
   },
+  onSaveBeforeClose: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('app:save-before-close', listener);
+    return () => ipcRenderer.removeListener('app:save-before-close', listener);
+  },
+  completeSaveBeforeClose: (success) => ipcRenderer.send('app:save-before-close-complete', success),
   setWindowDirty: (dirty) => ipcRenderer.send('window:set-dirty', dirty),
   log: (message) => ipcRenderer.send('log', message)
 };

@@ -9,9 +9,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "preview": "electron-vite preview",
     "lint": "eslint . --ext .ts,.tsx",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "postinstall": "if [ -d node_modules/electron/dist/Electron.app ]; then plutil -replace CFBundleName -string 'Rowly' node_modules/electron/dist/Electron.app/Contents/Info.plist && plutil -replace CFBundleDisplayName -string 'Rowly' node_modules/electron/dist/Electron.app/Contents/Info.plist; fi",
     "start": "electron-forge start",
     "package": "electron-forge package",

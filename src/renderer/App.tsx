@@ -95,6 +95,9 @@ const App = () => {
   const commitBatch = useGridStore((s) => s.commitBatch);
   const storeReplaceAll = useGridStore((s) => s.replaceAll);
   const dirty = useGridStore((s) => s.dirty);
+  const anyDirty = useGridStore((s) =>
+    s.dirty || Object.values(s._tabSnapshots).some((snapshot) => snapshot.dirty)
+  );
   const filePath = useGridStore((s) => s.filePath);
   const meta = useGridStore((s) => s.meta);
   const columnProfiles = useGridStore((s) => s.columnProfiles);
@@ -253,7 +256,14 @@ const App = () => {
   const handleOpenRecent = useCallback(
     async (targetPath: string) => {
       try {
-        await window.api.openRecentFile(targetPath);
+        const result = await window.api.openRecentFile(targetPath);
+        const state = useGridStore.getState();
+        const existing = state.tabs.find((tab) => tab.filePath === result.document.filePath);
+        if (existing) {
+          state.switchTab(existing.id);
+        } else {
+          openTab(result.document);
+        }
         refreshRecents();
       } catch (error) {
         setProgress(null);
@@ -267,7 +277,7 @@ const App = () => {
         }
       }
     },
-    [openFile, refreshRecents]
+    [openTab, refreshRecents]
   );
 
   const handleLocateRecent = useCallback(
@@ -324,20 +334,35 @@ const App = () => {
   }, [selectedRecentPaths, openTab]);
 
   const handleSave = useCallback(async () => {
-    await save();
-    refreshRecents();
+    try {
+      await save();
+      refreshRecents();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Could not save file:\n\n${message}`);
+    }
   }, [save, refreshRecents]);
 
   const handleSaveAs = useCallback(async () => {
-    await saveAs();
-    refreshRecents();
+    try {
+      await saveAs();
+      refreshRecents();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Could not save file:\n\n${message}`);
+    }
   }, [saveAs, refreshRecents]);
 
   const handleSaveFilteredAs = useCallback(async () => {
-    const targetPath = await saveFilteredAs();
-    if (targetPath) {
-      await openFile(targetPath);
-      refreshRecents();
+    try {
+      const targetPath = await saveFilteredAs();
+      if (targetPath) {
+        await openFile(targetPath);
+        refreshRecents();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Could not save filtered rows:\n\n${message}`);
     }
   }, [saveFilteredAs, openFile, refreshRecents]);
 
@@ -348,6 +373,8 @@ const App = () => {
       rows: [new Array(defaultHeaders.length).fill('')],
       delimiter: ',',
       newline: '\n',
+      hasFinalNewline: true,
+      hasUtf8Bom: false,
       filePath: null,
       updatedAt: new Date().toISOString(),
       meta: { rowCount: 1, columnCount: defaultHeaders.length }
@@ -682,23 +709,43 @@ const App = () => {
     return () => dispose();
   }, [openFile, refreshRecents]);
 
-  // Check ALL tabs for unsaved changes before unloading
+  // Main process owns the close prompt; save every dirty tab when requested.
   useEffect(() => {
-    const handleUnload = (event: BeforeUnloadEvent) => {
-      const state = useGridStore.getState();
-      const anyDirty =
-        state.dirty || Object.values(state._tabSnapshots).some((s) => s.dirty);
-      if (!anyDirty) return;
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
-  }, []);
+    const dispose = window.api.onSaveBeforeClose(() => {
+      void (async () => {
+        try {
+          const tabIds = useGridStore.getState().tabs
+            .filter((tab) => {
+              const state = useGridStore.getState();
+              return tab.id === state.activeTabId
+                ? state.dirty
+                : state._tabSnapshots[tab.id]?.dirty ?? false;
+            })
+            .map((tab) => tab.id);
+
+          for (const tabId of tabIds) {
+            const state = useGridStore.getState();
+            if (state.activeTabId !== tabId) state.switchTab(tabId);
+            const targetPath = await save();
+            if (!targetPath) {
+              window.api.completeSaveBeforeClose(false);
+              return;
+            }
+          }
+          window.api.completeSaveBeforeClose(true);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          window.alert(`Could not save before closing:\n\n${message}`);
+          window.api.completeSaveBeforeClose(false);
+        }
+      })();
+    });
+    return () => dispose();
+  }, [save]);
 
   useEffect(() => {
-    window.api.setWindowDirty(dirty);
-  }, [dirty]);
+    window.api.setWindowDirty(anyDirty);
+  }, [anyDirty]);
 
   useEffect(() => {
     const handleDragOver = (event: DragEvent) => {
@@ -771,7 +818,7 @@ const App = () => {
         onActiveColumnChange={setActiveColumnIndex}
       />
     );
-  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, searchTerm, searchMatches, currentMatchIndex, wrapText, openFilterHelp]);
+  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, insertRowAt, insertColumnAt, removeRow, removeColumn, moveRows, moveColumns, beginBatch, commitBatch, searchTerm, searchMatches, currentMatchIndex, wrapText, openFilterHelp, handleSearchNextAndFocusGrid, handleSearchPrevAndFocusGrid, handleFindBarClose]);
 
   return (
     <div className="app-shell">

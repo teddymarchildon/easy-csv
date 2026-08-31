@@ -1,4 +1,10 @@
 export type CellValue = string | number | null;
+export type CsvNewline = '\n' | '\r\n' | '\r';
+
+export interface FileVersion {
+  mtimeMs: number;
+  size: number;
+}
 export type ColumnInferredType = 'empty' | 'number' | 'date' | 'boolean' | 'string' | 'mixed';
 
 export interface ColumnProfile {
@@ -32,7 +38,10 @@ export interface CsvDocument {
   headers: string[];
   rows: CellValue[][];
   delimiter: string;
-  newline: '\n' | '\r\n';
+  newline: CsvNewline;
+  hasFinalNewline: boolean;
+  hasUtf8Bom: boolean;
+  fileVersion?: FileVersion;
   filePath?: string | null;
   updatedAt: string;
   meta: CsvMeta;
@@ -43,8 +52,16 @@ export interface SavePayload {
   headers: string[];
   rows: CellValue[][];
   delimiter: string;
-  newline: '\n' | '\r\n';
+  newline: CsvNewline;
+  hasFinalNewline: boolean;
+  hasUtf8Bom: boolean;
+  expectedVersion?: FileVersion;
+  force?: boolean;
 }
+
+export type SaveResult =
+  | { ok: true; fileVersion: FileVersion }
+  | { ok: false; conflict: true; currentVersion?: FileVersion };
 
 export interface RecentFile {
   path: string;

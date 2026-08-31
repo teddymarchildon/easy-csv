@@ -22,7 +22,7 @@ Rowly is a native macOS desktop application designed for a single job: making CS
 
 ### Core Design Principles
 
-1. **Speed over features.** The app opens in under a second. Large files parse in a background thread so the UI never locks. Virtual scrolling renders only visible rows, keeping memory usage flat regardless of file size.
+1. **Speed over features.** Large files parse in a background thread so parsing does not block the UI. Virtual scrolling renders only visible rows and columns, keeping DOM work bounded as files grow.
 
 2. **Keyboard-first, mouse-friendly.** Every action is reachable via keyboard shortcuts. Arrow keys navigate cells, Enter edits in place, Cmd+K opens a command palette. But nothing requires memorization — every action is also available through menus and toolbars.
 
@@ -89,7 +89,7 @@ The architecture is driven by two non-negotiable requirements: **UI responsivene
 
 ### Why This Architecture
 
-- **Worker thread for CSV parsing.** Parsing is CPU-bound. Running PapaParse in a dedicated Node.js worker thread keeps the main process responsive and the renderer buttery smooth, even for multi-megabyte files. Progress events stream back to the UI in real time.
+- **Worker thread for CSV parsing.** Parsing is CPU-bound. Running PapaParse in a dedicated Node.js worker thread keeps the main process responsive while a file is decoded and parsed.
 
 - **Zustand for state.** Lightweight, minimal boilerplate, and pairs naturally with React's rendering model. Shallow selectors prevent unnecessary re-renders — critical when the grid contains thousands of cells. The store encapsulates undo/redo stacks, tab snapshots, and filter state in a single coherent model.
 
@@ -188,9 +188,9 @@ The foundation is solid — what follows is guided by real usage patterns and us
 
 - **Diff preview before save.** Show a visual summary of what changed since the last save, giving users confidence before committing edits to disk.
 - **Typed columns and validation.** Let users declare column types (date, number, email) and surface validation errors inline — catching bad data before it propagates downstream.
-- **Test coverage.** Unit tests for the CSV worker (parsing edge cases) and the Zustand store (undo/redo, tab lifecycle, filter logic).
+- **Broader test coverage.** CSV worker integration tests cover fidelity and malformed input; state-level tests for undo/redo, tab lifecycle, and filter logic are still planned.
 - **Export formats.** Save as TSV, JSON, or fixed-width — broadening the utility without losing the CSV-first identity.
-- **Custom delimiters.** Auto-detect and support semicolons, pipes, and tabs as field separators.
+- **Delimiter controls.** Auto-detection supports commas, semicolons, pipes, and tabs; a manual override remains planned for ambiguous files.
 
 ---
 

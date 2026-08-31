@@ -77,9 +77,8 @@ const pickInferredType = (
   return { inferredType: 'string', confidence: 1 - bestRatio };
 };
 
-export const inferColumnProfiles = (headers: string[], rows: CellValue[][]): ColumnProfile[] => {
-  return headers.map((_, columnIndex) => {
-    let nonNullCount = 0;
+export const inferColumnProfile = (columnIndex: number, rows: CellValue[][]): ColumnProfile => {
+  let nonNullCount = 0;
     let nullCount = 0;
     const parseableCount = { number: 0, date: 0, boolean: 0 };
     const invalidExamples: string[] = [];
@@ -157,8 +156,11 @@ export const inferColumnProfiles = (headers: string[], rows: CellValue[][]): Col
       };
     }
 
-    return profile;
-  });
+  return profile;
+};
+
+export const inferColumnProfiles = (headers: string[], rows: CellValue[][]): ColumnProfile[] => {
+  return headers.map((_, columnIndex) => inferColumnProfile(columnIndex, rows));
 };
 
 export const getTypeBadgeLabel = (type: ColumnInferredType): string => {

@@ -1,4 +1,4 @@
-import type { CsvDocument, MergeRecentFilesResult, OpenRecentFileResult, ProgressPayload, RecentFile, ResolvedTheme, SavePayload, ThemeMode, ThemePayload } from '@shared/types';
+import type { CsvDocument, MergeRecentFilesResult, OpenRecentFileResult, ProgressPayload, RecentFile, ResolvedTheme, SavePayload, SaveResult, ThemeMode, ThemePayload } from '@shared/types';
 
 export type MenuAction =
   | 'open'
@@ -17,7 +17,7 @@ export interface RendererApi {
   openRecentFile(path: string): Promise<OpenRecentFileResult>;
   startOpenFileEvents(): Promise<string[]>;
   chooseSaveLocation(defaultPath?: string | null): Promise<string | null>;
-  saveFile(payload: SavePayload): Promise<boolean>;
+  saveFile(payload: SavePayload): Promise<SaveResult>;
   mergeRecentFiles(pathA: string, pathB: string): Promise<MergeRecentFilesResult>;
   getRecentFiles(): Promise<RecentFile[]>;
   locateRecentFile(path: string): Promise<RecentFile[] | null>;
@@ -29,6 +29,8 @@ export interface RendererApi {
   onProgress(callback: (payload: ProgressPayload) => void): () => void;
   onOpenFileRequest(callback: (filePath: string) => void): () => void;
   onMenuAction(callback: (action: MenuAction) => void): () => void;
+  onSaveBeforeClose(callback: () => void): () => void;
+  completeSaveBeforeClose(success: boolean): void;
   setWindowDirty(dirty: boolean): void;
   log(message: unknown): void;
 }

@@ -1,5 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import type { Virtualizer } from '@tanstack/react-virtual';
 import type { CellValue, ColumnProfile } from '@shared/types';
 import classNames from 'classnames';
 import { buildFilteredRowEntries } from '../state/filtering';
@@ -116,21 +117,11 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     }
   }), [rows.length, headers.length]);
 
-  const gridTemplateColumns = useMemo(
-    () => headers.map((_, i) => `${columnWidths[i] ?? DEFAULT_COLUMN_WIDTH}px`).join(' '),
-    [headers, columnWidths]
-  );
-
   // Row number gutter width adapts to digit count
   const rowNumWidth = useMemo(() => {
     const digits = Math.max(2, String(rows.length).length);
     return digits * 7 + 16;
   }, [rows.length]);
-
-  const fullGridTemplateColumns = useMemo(
-    () => `${rowNumWidth}px ${gridTemplateColumns}`,
-    [rowNumWidth, gridTemplateColumns]
-  );
 
   const totalGridWidth = useMemo(
     () => rowNumWidth + headers.reduce((sum, _, i) => sum + (columnWidths[i] ?? DEFAULT_COLUMN_WIDTH), 0),
@@ -310,7 +301,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   }, [currentSearchMatch, ensureColumnVisible, searchMatches, searchTerm, sourceToFilteredIndex]);
 
   // We need a ref to the virtualizer so the effect above can access it
-  const rowVirtualizerRef = useRef<ReturnType<typeof useVirtualizer> | null>(null);
+  const rowVirtualizerRef = useRef<Virtualizer<HTMLDivElement, Element> | null>(null);
 
   const rowVirtualizer = useVirtualizer({
     count: filteredRows.length,

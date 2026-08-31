@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { CellValue, ColumnProfile, CsvDocument } from '@shared/types';
-import { inferColumnProfiles } from './columnProfiling';
+import type { CellValue, ColumnProfile, CsvDocument, FileVersion } from '@shared/types';
+import { inferColumnProfile, inferColumnProfiles } from './columnProfiling';
 import { buildFilteredRowEntries } from './filtering';
 import { sortRowEntries, type SortDirection, type SortRule } from './sorting';
 
@@ -12,17 +12,45 @@ type Snapshot = {
   headers: string[];
   rows: CellValue[][];
   delimiter: string;
-  newline: '\n' | '\r\n';
+  newline: CsvDocument['newline'];
+  hasFinalNewline: boolean;
+  hasUtf8Bom: boolean;
+  fileVersion?: FileVersion;
   filePath?: string | null;
   sorts: SortRule[];
+  columnWidths: Record<number, number>;
 };
 
-export type UndoEntry = {
+type SnapshotUndoEntry = {
+  kind: 'snapshot';
   snapshot: Snapshot;
   label: string;
   timestamp: number;
   coalesceKey?: string;
 };
+
+type CellUndoEntry = {
+  kind: 'cell';
+  rowIndex: number;
+  columnIndex: number;
+  before: CellValue;
+  after: CellValue;
+  label: string;
+  timestamp: number;
+  coalesceKey: string;
+};
+
+type HeaderUndoEntry = {
+  kind: 'header';
+  columnIndex: number;
+  before: string;
+  after: string;
+  label: string;
+  timestamp: number;
+  coalesceKey: string;
+};
+
+export type UndoEntry = SnapshotUndoEntry | CellUndoEntry | HeaderUndoEntry;
 
 /** Lightweight info shown in the tab bar. */
 export interface TabInfo {
@@ -36,7 +64,10 @@ interface TabSnapshot {
   headers: string[];
   rows: CellValue[][];
   delimiter: string;
-  newline: '\n' | '\r\n';
+  newline: CsvDocument['newline'];
+  hasFinalNewline: boolean;
+  hasUtf8Bom: boolean;
+  fileVersion?: FileVersion;
   filePath: string | null;
   dirty: boolean;
   meta: { rowCount: number; columnCount: number };
@@ -116,7 +147,7 @@ interface GridState extends Snapshot {
   hasActiveFilters: () => boolean;
   getFilteredRows: () => CellValue[][];
   clear: () => void;
-  markSaved: (filePath?: string | null) => void;
+  markSaved: (filePath?: string | null, fileVersion?: FileVersion) => void;
   undo: () => void;
   redo: () => void;
   beginBatch: (label: string) => void;
@@ -132,8 +163,12 @@ const cloneSnapshot = (state: Snapshot | GridState): Snapshot => ({
   rows: state.rows.map((row) => [...row]),
   delimiter: state.delimiter,
   newline: state.newline,
+  hasFinalNewline: state.hasFinalNewline,
+  hasUtf8Bom: state.hasUtf8Bom,
+  fileVersion: state.fileVersion,
   filePath: state.filePath ?? null,
-  sorts: [...state.sorts]
+  sorts: [...state.sorts],
+  columnWidths: { ...state.columnWidths }
 });
 
 const createEmptySnapshot = (): Snapshot => ({
@@ -141,8 +176,12 @@ const createEmptySnapshot = (): Snapshot => ({
   rows: [],
   delimiter: ',',
   newline: '\n',
+  hasFinalNewline: true,
+  hasUtf8Bom: false,
+  fileVersion: undefined,
   filePath: null,
-  sorts: []
+  sorts: [],
+  columnWidths: {}
 });
 
 /** Trim a stack to at most MAX_UNDO_HISTORY entries (drops oldest). */
@@ -155,6 +194,9 @@ const captureActiveTab = (state: GridState): TabSnapshot => ({
   rows: state.rows,
   delimiter: state.delimiter,
   newline: state.newline,
+  hasFinalNewline: state.hasFinalNewline,
+  hasUtf8Bom: state.hasUtf8Bom,
+  fileVersion: state.fileVersion,
   filePath: state.filePath ?? null,
   dirty: state.dirty,
   meta: { ...state.meta },
@@ -177,6 +219,9 @@ const restoreFromTabSnapshot = (
   rows: snap.rows,
   delimiter: snap.delimiter,
   newline: snap.newline,
+  hasFinalNewline: snap.hasFinalNewline,
+  hasUtf8Bom: snap.hasUtf8Bom,
+  fileVersion: snap.fileVersion,
   filePath: snap.filePath,
   dirty: snap.dirty,
   meta: snap.meta,
@@ -347,6 +392,7 @@ export const useGridStore = create<GridState>()((set, get) => {
       // --- Normal push ----------------------------------------------------
       const previous = cloneSnapshot(state);
       const entry: UndoEntry = {
+        kind: 'snapshot',
         snapshot: previous,
         label,
         timestamp: now,
@@ -418,6 +464,9 @@ export const useGridStore = create<GridState>()((set, get) => {
           rows: doc.rows,
           delimiter: doc.delimiter,
           newline: doc.newline,
+          hasFinalNewline: doc.hasFinalNewline,
+          hasUtf8Bom: doc.hasUtf8Bom,
+          fileVersion: doc.fileVersion,
           filePath: doc.filePath ?? null,
           dirty: false,
           meta: doc.meta,
@@ -588,6 +637,9 @@ export const useGridStore = create<GridState>()((set, get) => {
         rows: doc.rows,
         delimiter: doc.delimiter,
         newline: doc.newline,
+        hasFinalNewline: doc.hasFinalNewline,
+        hasUtf8Bom: doc.hasUtf8Bom,
+        fileVersion: doc.fileVersion,
         filePath: doc.filePath ?? null,
         dirty: false,
         columnWidths: {},
@@ -613,17 +665,47 @@ export const useGridStore = create<GridState>()((set, get) => {
     // =====================================================================
 
     updateCell: (rowIndex, columnIndex, value) => {
-      const current = get().rows[rowIndex]?.[columnIndex];
+      const currentState = get();
+      const current = currentState.rows[rowIndex]?.[columnIndex] ?? '';
       const currentStr = current === null || current === undefined ? '' : String(current);
       if (currentStr === value) return;
-      applyMutation(
-        'Edit Cell',
-        (draft) => {
-          draft.rows[rowIndex] = draft.rows[rowIndex] ?? [];
-          draft.rows[rowIndex][columnIndex] = value;
-        },
-        `cell:${rowIndex}:${columnIndex}`
-      );
+      set((state) => {
+        const rows = [...state.rows];
+        const row = [...(rows[rowIndex] ?? [])];
+        row[columnIndex] = value;
+        rows[rowIndex] = row;
+
+        if (state._batchDepth > 0) {
+          return {
+            ...state,
+            rows,
+            dirty: true,
+            _batchSnapshot: state._batchSnapshot ?? cloneSnapshot(state)
+          };
+        }
+
+        const now = Date.now();
+        const coalesceKey = `cell:${rowIndex}:${columnIndex}`;
+        const top = state.undoStack[state.undoStack.length - 1];
+        let undoStack: UndoEntry[];
+        if (top?.kind === 'cell' && top.coalesceKey === coalesceKey && now - top.timestamp < COALESCE_WINDOW_MS) {
+          undoStack = [...state.undoStack.slice(0, -1), { ...top, after: value, timestamp: now }];
+        } else {
+          undoStack = trimStack([...state.undoStack, {
+            kind: 'cell',
+            rowIndex,
+            columnIndex,
+            before: current,
+            after: value,
+            label: 'Edit Cell',
+            timestamp: now,
+            coalesceKey
+          }]);
+        }
+        const columnProfiles = [...state.columnProfiles];
+        columnProfiles[columnIndex] = inferColumnProfile(columnIndex, rows);
+        return { ...state, rows, dirty: true, undoStack, redoStack: [], columnProfiles };
+      });
     },
 
     addRow: () => {
@@ -707,14 +789,38 @@ export const useGridStore = create<GridState>()((set, get) => {
     },
 
     updateHeader: (columnIndex, value) => {
-      if (get().headers[columnIndex] === value) return;
-      applyMutation(
-        'Edit Header',
-        (draft) => {
-          draft.headers[columnIndex] = value;
-        },
-        `header:${columnIndex}`
-      );
+      const current = get().headers[columnIndex] ?? '';
+      if (current === value) return;
+      set((state) => {
+        const headers = [...state.headers];
+        headers[columnIndex] = value;
+        if (state._batchDepth > 0) {
+          return {
+            ...state,
+            headers,
+            dirty: true,
+            _batchSnapshot: state._batchSnapshot ?? cloneSnapshot(state)
+          };
+        }
+        const now = Date.now();
+        const coalesceKey = `header:${columnIndex}`;
+        const top = state.undoStack[state.undoStack.length - 1];
+        let undoStack: UndoEntry[];
+        if (top?.kind === 'header' && top.coalesceKey === coalesceKey && now - top.timestamp < COALESCE_WINDOW_MS) {
+          undoStack = [...state.undoStack.slice(0, -1), { ...top, after: value, timestamp: now }];
+        } else {
+          undoStack = trimStack([...state.undoStack, {
+            kind: 'header',
+            columnIndex,
+            before: current,
+            after: value,
+            label: 'Edit Header',
+            timestamp: now,
+            coalesceKey
+          }]);
+        }
+        return { ...state, headers, dirty: true, undoStack, redoStack: [] };
+      });
     },
 
     replaceAll: (term, replacement, matches) => {
@@ -841,11 +947,12 @@ export const useGridStore = create<GridState>()((set, get) => {
         _tabSnapshots: state._tabSnapshots
       })),
 
-    markSaved: (filePath) =>
+    markSaved: (filePath, fileVersion) =>
       set((state) => ({
         ...state,
         dirty: false,
         filePath: filePath ?? state.filePath,
+        fileVersion: fileVersion ?? state.fileVersion,
         // Sync active tab info
         tabs: state.tabs.map((t) =>
           t.id === state.activeTabId
@@ -865,7 +972,35 @@ export const useGridStore = create<GridState>()((set, get) => {
         }
         const top = state.undoStack[state.undoStack.length - 1];
         const nextUndo = state.undoStack.slice(0, -1);
+        if (top.kind === 'cell') {
+          const rows = [...state.rows];
+          const row = [...(rows[top.rowIndex] ?? [])];
+          row[top.columnIndex] = top.before;
+          rows[top.rowIndex] = row;
+          const profiles = [...state.columnProfiles];
+          profiles[top.columnIndex] = inferColumnProfile(top.columnIndex, rows);
+          return {
+            ...state,
+            rows,
+            dirty: true,
+            undoStack: nextUndo,
+            redoStack: trimStack([...state.redoStack, top]),
+            columnProfiles: profiles
+          };
+        }
+        if (top.kind === 'header') {
+          const headers = [...state.headers];
+          headers[top.columnIndex] = top.before;
+          return {
+            ...state,
+            headers,
+            dirty: true,
+            undoStack: nextUndo,
+            redoStack: trimStack([...state.redoStack, top])
+          };
+        }
         const redoEntry: UndoEntry = {
+          kind: 'snapshot',
           snapshot: cloneSnapshot(state),
           label: top.label,
           timestamp: Date.now()
@@ -873,6 +1008,8 @@ export const useGridStore = create<GridState>()((set, get) => {
         return {
           ...state,
           ...top.snapshot,
+          filePath: state.filePath,
+          fileVersion: state.fileVersion,
           dirty: true,
           undoStack: nextUndo,
           redoStack: trimStack([...state.redoStack, redoEntry]),
@@ -891,7 +1028,35 @@ export const useGridStore = create<GridState>()((set, get) => {
         }
         const top = state.redoStack[state.redoStack.length - 1];
         const remaining = state.redoStack.slice(0, -1);
+        if (top.kind === 'cell') {
+          const rows = [...state.rows];
+          const row = [...(rows[top.rowIndex] ?? [])];
+          row[top.columnIndex] = top.after;
+          rows[top.rowIndex] = row;
+          const profiles = [...state.columnProfiles];
+          profiles[top.columnIndex] = inferColumnProfile(top.columnIndex, rows);
+          return {
+            ...state,
+            rows,
+            dirty: true,
+            redoStack: remaining,
+            undoStack: trimStack([...state.undoStack, top]),
+            columnProfiles: profiles
+          };
+        }
+        if (top.kind === 'header') {
+          const headers = [...state.headers];
+          headers[top.columnIndex] = top.after;
+          return {
+            ...state,
+            headers,
+            dirty: true,
+            redoStack: remaining,
+            undoStack: trimStack([...state.undoStack, top])
+          };
+        }
         const undoEntry: UndoEntry = {
+          kind: 'snapshot',
           snapshot: cloneSnapshot(state),
           label: top.label,
           timestamp: Date.now()
@@ -899,6 +1064,8 @@ export const useGridStore = create<GridState>()((set, get) => {
         return {
           ...state,
           ...top.snapshot,
+          filePath: state.filePath,
+          fileVersion: state.fileVersion,
           dirty: true,
           redoStack: remaining,
           undoStack: trimStack([...state.undoStack, undoEntry]),
@@ -931,6 +1098,7 @@ export const useGridStore = create<GridState>()((set, get) => {
         // Outermost batch is complete — push the pre-batch snapshot as one entry
         if (state._batchSnapshot) {
           const entry: UndoEntry = {
+            kind: 'snapshot',
             snapshot: state._batchSnapshot,
             label: state._batchLabel ?? 'Batch Edit',
             timestamp: Date.now()
@@ -941,7 +1109,8 @@ export const useGridStore = create<GridState>()((set, get) => {
             _batchLabel: null,
             _batchSnapshot: null,
             undoStack: trimStack([...state.undoStack, entry]),
-            redoStack: []
+            redoStack: [],
+            columnProfiles: inferColumnProfiles(state.headers, state.rows)
           };
         }
         // Batch was opened but no mutations happened

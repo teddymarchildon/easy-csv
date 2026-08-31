@@ -1,6 +1,6 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { app } from 'electron';
-import type { CellValue, CsvDocument, MergeRecentFilesResult, ProgressPayload, SavePayload } from '@shared/types';
+import type { CellValue, CsvDocument, MergeRecentFilesResult, ProgressPayload, SavePayload, SaveResult } from '@shared/types';
 import { parseCsv, writeCsv } from './csvWorker';
 import { RecentFileStore } from '../recentFiles';
 import { logger } from '../logger';
@@ -26,7 +26,7 @@ export class FileManager {
 
     let stopAccessing: (() => void) | undefined;
     try {
-      stopAccessing = app.startAccessingSecurityScopedResource(bookmark);
+      stopAccessing = app.startAccessingSecurityScopedResource(bookmark) as () => void;
     } catch (error) {
       logger.warn('Failed to start security-scoped access', error);
     }
@@ -77,16 +77,16 @@ export class FileManager {
   }
 
   mergeDocuments(
-    documentA: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
-    documentB: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
+    documentA: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline' | 'hasFinalNewline' | 'hasUtf8Bom'>,
+    documentB: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline' | 'hasFinalNewline' | 'hasUtf8Bom'>,
     sourcePaths: [string, string]
   ): MergeRecentFilesResult {
     return this.buildMergedDocument(documentA, documentB, sourcePaths);
   }
 
   private buildMergedDocument(
-    parsedA: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
-    parsedB: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline'>,
+    parsedA: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline' | 'hasFinalNewline' | 'hasUtf8Bom'>,
+    parsedB: Pick<CsvDocument, 'headers' | 'rows' | 'delimiter' | 'newline' | 'hasFinalNewline' | 'hasUtf8Bom'>,
     sourcePaths: [string, string]
   ): MergeRecentFilesResult {
     const headers = [...parsedA.headers];
@@ -120,6 +120,8 @@ export class FileManager {
       rows: mergedRows,
       delimiter: parsedA.delimiter,
       newline: parsedA.newline,
+      hasFinalNewline: parsedA.hasFinalNewline,
+      hasUtf8Bom: parsedA.hasUtf8Bom,
       filePath: null,
       updatedAt: new Date().toISOString(),
       meta: {
@@ -136,10 +138,36 @@ export class FileManager {
     };
   }
 
-  async save(payload: SavePayload, options?: { bookmark?: string }): Promise<void> {
-    await this.withSecurityScopedAccess(options?.bookmark, () => writeCsv(payload, this.onProgress));
-    this.recents.add(payload.filePath, options?.bookmark);
-    logger.info(`Saved CSV: ${payload.filePath}`);
+  async save(payload: SavePayload, options?: { bookmark?: string }): Promise<SaveResult> {
+    return this.withSecurityScopedAccess(options?.bookmark, async () => {
+      if (payload.expectedVersion && !payload.force) {
+        let current;
+        try {
+          current = await stat(payload.filePath);
+        } catch (error) {
+          if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            return { ok: false, conflict: true };
+          }
+          throw error;
+        }
+        const changed =
+          current.size !== payload.expectedVersion.size ||
+          Math.abs(current.mtimeMs - payload.expectedVersion.mtimeMs) > 0.5;
+        if (changed) {
+          return {
+            ok: false,
+            conflict: true,
+            currentVersion: { mtimeMs: current.mtimeMs, size: current.size }
+          };
+        }
+      }
+
+      await writeCsv(payload, this.onProgress);
+      const saved = await stat(payload.filePath);
+      this.recents.add(payload.filePath, options?.bookmark);
+      logger.info(`Saved CSV: ${payload.filePath}`);
+      return { ok: true, fileVersion: { mtimeMs: saved.mtimeMs, size: saved.size } };
+    });
   }
 
   async readText(filePath: string): Promise<string> {

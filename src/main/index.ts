@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } fro
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import type { CsvDocument, MergeRecentFilesPayload, OpenRecentFileResult, RecentFile, SavePayload, ThemeMode } from '@shared/types';
+import { z } from 'zod';
+import type { MergeRecentFilesPayload, OpenRecentFileResult, RecentFile, SavePayload, ThemeMode } from '@shared/types';
 import { FileManager } from './services/fileManager';
 import { RecentFileStore } from './recentFiles';
 import { SettingsStore } from './settingsStore';
@@ -17,11 +18,12 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null;
 let activeEditorDirty = false;
 let bypassCloseConfirm = false;
+let closeSaveInFlight = false;
 const pendingOpenFiles: string[] = [];
 let openFileEventsReady = false;
 
 app.setName('Rowly');
-app.setAppUserModelId('com.easysheet.app');
+app.setAppUserModelId('com.teddymarchildon.easycsv');
 
 const recents = new RecentFileStore();
 const settings = new SettingsStore();
@@ -34,6 +36,37 @@ const fileManager = new FileManager({
 });
 
 const isMac = process.platform === 'darwin';
+const absolutePathSchema = z.string().min(1).refine((value) => path.isAbsolute(value), 'Expected an absolute file path');
+const themeModeSchema = z.enum(['light', 'dark', 'system']);
+const mergePayloadSchema = z.object({ pathA: absolutePathSchema, pathB: absolutePathSchema });
+const savePayloadSchema = z.custom<SavePayload>((value) => {
+  if (!value || typeof value !== 'object') return false;
+  const payload = value as Partial<SavePayload>;
+  const expectedVersion = payload.expectedVersion as unknown;
+  const validVersion =
+    expectedVersion === undefined ||
+    (typeof expectedVersion === 'object' &&
+      expectedVersion !== null &&
+      Number.isFinite((expectedVersion as { mtimeMs?: unknown }).mtimeMs) &&
+      Number.isFinite((expectedVersion as { size?: unknown }).size));
+  return (
+    typeof payload.filePath === 'string' &&
+    path.isAbsolute(payload.filePath) &&
+    Array.isArray(payload.headers) &&
+    payload.headers.every((header) => typeof header === 'string') &&
+    Array.isArray(payload.rows) &&
+    payload.rows.every((row) =>
+      Array.isArray(row) && row.every((cell) => cell === null || typeof cell === 'string' || (typeof cell === 'number' && Number.isFinite(cell)))
+    ) &&
+    typeof payload.delimiter === 'string' &&
+    payload.delimiter.length === 1 &&
+    (payload.newline === '\n' || payload.newline === '\r\n' || payload.newline === '\r') &&
+    typeof payload.hasFinalNewline === 'boolean' &&
+    typeof payload.hasUtf8Bom === 'boolean' &&
+    (payload.force === undefined || typeof payload.force === 'boolean') &&
+    validVersion
+  );
+}, 'Invalid save payload');
 
 // Apply saved theme preference before creating the window
 nativeTheme.themeSource = settings.getThemeMode();
@@ -268,16 +301,21 @@ const createWindow = async () => {
     event.preventDefault();
     const response = await dialog.showMessageBox(mainWindow!, {
       type: 'warning',
-      buttons: ['Cancel', 'Discard Changes'],
+      buttons: ['Save Changes', 'Cancel', 'Discard Changes'],
       defaultId: 0,
-      cancelId: 0,
+      cancelId: 1,
       noLink: true,
       title: 'Unsaved Changes',
-      message: 'You have unsaved changes in the current editor.',
-      detail: 'Close anyway? Your unsaved changes will be lost.'
+      message: 'One or more tabs have unsaved changes.',
+      detail: 'Save all changes before closing Rowly?'
     });
 
-    if (response.response === 1) {
+    if (response.response === 0) {
+      if (!closeSaveInFlight) {
+        closeSaveInFlight = true;
+        mainWindow?.webContents.send('app:save-before-close');
+      }
+    } else if (response.response === 2) {
       activeEditorDirty = false;
       mainWindow?.setDocumentEdited(false);
       bypassCloseConfirm = true;
@@ -299,6 +337,11 @@ const createWindow = async () => {
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     logger.error('Renderer failed to load:', { errorCode, errorDescription });
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    const currentUrl = mainWindow?.webContents.getURL();
+    if (targetUrl !== currentUrl) event.preventDefault();
   });
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
@@ -333,7 +376,8 @@ app.whenReady().then(() => {
   protocol.handle('app', async (request) => {
     const url = new URL(request.url);
     const filePath = path.resolve(rendererDir, decodeURIComponent(url.pathname).slice(1));
-    if (!filePath.startsWith(rendererDir)) {
+    const relativePath = path.relative(rendererDir, filePath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
       return new Response('Forbidden', { status: 403 });
     }
     const data = await readFile(filePath);
@@ -407,12 +451,13 @@ ipcMain.handle('dialog:save-file', async (_, defaultPath?: string) => {
   return result.filePath;
 });
 
-ipcMain.handle('file:load', async (_event, filePath: string) => openFileFromPath(filePath));
+ipcMain.handle('file:load', async (_event, filePath: string) => openFileFromPath(absolutePathSchema.parse(filePath)));
 
-ipcMain.handle('recent:open', async (_event, filePath: string) => openRecentFile(filePath));
+ipcMain.handle('recent:open', async (_event, filePath: string) => openRecentFile(absolutePathSchema.parse(filePath)));
 
 ipcMain.handle('file:merge-recents', async (_event, payload: MergeRecentFilesPayload) => {
-  return openRecentFilesForMerge(payload.pathA, payload.pathB);
+  const parsed = mergePayloadSchema.parse(payload) as MergeRecentFilesPayload;
+  return openRecentFilesForMerge(parsed.pathA, parsed.pathB);
 });
 
 ipcMain.handle('app:start-open-file-events', () => {
@@ -421,17 +466,18 @@ ipcMain.handle('app:start-open-file-events', () => {
 });
 
 ipcMain.handle('file:save', async (_event, payload: SavePayload) => {
-  const bookmark = pendingSaveBookmarks.get(payload.filePath) ?? recents.find(payload.filePath)?.bookmark;
+  const parsedPayload = savePayloadSchema.parse(payload);
+  const bookmark = pendingSaveBookmarks.get(parsedPayload.filePath) ?? recents.find(parsedPayload.filePath)?.bookmark;
   if (bookmark) {
-    pendingSaveBookmarks.delete(payload.filePath);
+    pendingSaveBookmarks.delete(parsedPayload.filePath);
   }
-  await fileManager.save(payload, { bookmark });
-  return true;
+  return fileManager.save(parsedPayload, { bookmark });
 });
 
 ipcMain.handle('recent:list', () => listRecentFiles());
 
 ipcMain.handle('recent:locate', async (_event, filePath: string) => {
+  filePath = absolutePathSchema.parse(filePath);
   const located = await promptToLocateRecentFile(filePath);
   if (!located) {
     return null;
@@ -441,13 +487,10 @@ ipcMain.handle('recent:locate', async (_event, filePath: string) => {
   return listRecentFiles();
 });
 
-ipcMain.handle('recent:remove', (_event, filePath: string) => recents.remove(filePath));
+ipcMain.handle('recent:remove', (_event, filePath: string) => recents.remove(absolutePathSchema.parse(filePath)));
 
 ipcMain.handle('file:reveal', async (_event, targetPath: string) => {
-  if (!targetPath) {
-    return;
-  }
-
+  targetPath = absolutePathSchema.parse(targetPath);
   await shell.showItemInFolder(targetPath);
 });
 
@@ -460,6 +503,16 @@ ipcMain.on('window:set-dirty', (_event, dirty: boolean) => {
   mainWindow?.setDocumentEdited(dirty);
 });
 
+ipcMain.on('app:save-before-close-complete', (_event, success: boolean) => {
+  closeSaveInFlight = false;
+  if (!success || !mainWindow || mainWindow.isDestroyed()) return;
+  activeEditorDirty = false;
+  mainWindow.setDocumentEdited(false);
+  bypassCloseConfirm = true;
+  mainWindow.close();
+  bypassCloseConfirm = false;
+});
+
 // ── Theme / settings ──────────────────────────────
 
 ipcMain.handle('settings:get-theme', () => ({
@@ -468,11 +521,12 @@ ipcMain.handle('settings:get-theme', () => ({
 }));
 
 ipcMain.handle('settings:set-theme', (_event, mode: ThemeMode) => {
+  mode = themeModeSchema.parse(mode);
   settings.setThemeMode(mode);
   nativeTheme.themeSource = mode;
   return {
     mode,
-    resolved: (nativeTheme.shouldUseDarkColors ? 'dark' : 'light') as const
+    resolved: nativeTheme.shouldUseDarkColors ? ('dark' as const) : ('light' as const)
   };
 });
 

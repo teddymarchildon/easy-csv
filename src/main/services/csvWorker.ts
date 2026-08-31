@@ -13,6 +13,9 @@ type WorkerResult =
         rows: CsvDocument['rows'];
         delimiter: string;
         newline: CsvDocument['newline'];
+        hasFinalNewline: boolean;
+        hasUtf8Bom: boolean;
+        fileVersion: NonNullable<CsvDocument['fileVersion']>;
       };
     }
   | { type: 'written'; filePath: string }
