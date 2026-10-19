@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { DEFAULT_TEXT_SIZE, MIN_TEXT_SIZE, MAX_TEXT_SIZE } from '../hooks/useTextSize';
+
 interface ToolbarProps {
   onOpen(): void;
   onSave(): void;
@@ -18,6 +20,8 @@ interface ToolbarProps {
   redoLabel?: string;
   dirty: boolean;
   filePath?: string | null;
+  textSize: number;
+  onTextSizeChange(size: number): void;
   wrapText: boolean;
   onToggleWrap(): void;
   onOpenHelp(): void;
@@ -130,6 +134,8 @@ const Toolbar = ({
   redoLabel,
   dirty,
   filePath,
+  textSize,
+  onTextSizeChange,
   wrapText,
   onToggleWrap,
   onOpenHelp
@@ -201,6 +207,26 @@ const Toolbar = ({
       >
         <IconWrapText /> Wrap
       </button>
+      <div className="toolbar-text-size" role="group" aria-label="Sheet text size">
+        <button
+          onClick={() => onTextSizeChange(Math.max(MIN_TEXT_SIZE, textSize - 10))}
+          disabled={textSize <= MIN_TEXT_SIZE}
+          aria-label="Decrease sheet text size"
+          title="Decrease sheet text size"
+        >A−</button>
+        <button
+          className="toolbar-text-size__value"
+          onClick={() => onTextSizeChange(DEFAULT_TEXT_SIZE)}
+          aria-label={`Sheet text size ${textSize}%. Reset to 100%`}
+          title="Reset sheet text size to 100%"
+        ><span aria-live="polite">{textSize}%</span></button>
+        <button
+          onClick={() => onTextSizeChange(Math.min(MAX_TEXT_SIZE, textSize + 10))}
+          disabled={textSize >= MAX_TEXT_SIZE}
+          aria-label="Increase sheet text size"
+          title="Increase sheet text size"
+        >A+</button>
+      </div>
       <div className="toolbar-more-wrapper">
         <button
           ref={moreBtnRef}
@@ -236,7 +262,7 @@ const Toolbar = ({
               title="Save Filtered As… (⇧⌘E)"
             >
               <IconSaveFiltered />
-              <span>Save Filtered As</span>
+              <span>Export filtered rows…</span>
             </button>
           </div>
         )}

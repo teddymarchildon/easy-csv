@@ -53,8 +53,8 @@
   --badge-border-hover: rgba(148, 163, 184, 0.2);
   --shortcut-bg: rgba(148, 163, 184, 0.08);
   --btn-border: rgba(148, 163, 184, 0.3);
-  --row-number-color: rgba(148, 163, 184, 0.3);
-  --filter-icon: rgba(148, 163, 184, 0.4);
+  --row-number-color: #94a3b8;
+  --filter-icon: #94a3b8;
   --filter-icon-hover: rgba(148, 163, 184, 0.8);
   --remove-icon: rgba(148, 163, 184, 0.35);
   --placeholder: rgba(148, 163, 184, 0.4);
@@ -119,8 +119,8 @@
   --badge-border-hover: rgba(148, 163, 184, 0.3);
   --shortcut-bg: rgba(100, 116, 139, 0.07);
   --btn-border: rgba(148, 163, 184, 0.4);
-  --row-number-color: rgba(100, 116, 139, 0.35);
-  --filter-icon: rgba(100, 116, 139, 0.4);
+  --row-number-color: #64748b;
+  --filter-icon: #64748b;
   --filter-icon-hover: rgba(71, 85, 105, 0.7);
   --remove-icon: rgba(100, 116, 139, 0.35);
   --placeholder: rgba(100, 116, 139, 0.45);
@@ -255,7 +255,8 @@ body {
 
 .grid-panel {
   position: relative;
-  padding: 0.5rem 1rem 1rem 1.75rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  min-width: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -263,34 +264,39 @@ body {
 
 /* ── Panel toggle button ──────────────────────────── */
 
+.grid-panel--with-sidebar-control {
+  padding-left: 38px;
+}
+
 .panel-toggle {
-  all: unset;
   position: absolute;
-  top: 0.6rem;
-  left: 0.2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25rem;
-  height: 1.75rem;
-  border-radius: 0.3rem;
-  color: var(--icon-muted);
+  top: 8px;
+  left: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--btn-border);
+  border-radius: 6px;
+  background: var(--bg-surface-solid);
+  color: var(--text-secondary);
   cursor: pointer;
   z-index: 5;
-  transition: color 120ms ease, background 120ms ease;
 }
 
 .panel-toggle:hover {
   background: var(--hover-bg);
-  color: var(--icon-hover);
+  color: var(--text-primary);
 }
 
 .panel-toggle:active {
   background: var(--active-bg);
 }
 
-.panel-toggle--collapsed {
-  color: var(--icon-collapsed);
+.panel-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .data-grid {
@@ -330,7 +336,7 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--grid-text-scale, 1));
 }
 
 .data-grid__header-cell {
@@ -386,8 +392,11 @@ body {
   display: block;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .filter-toggle {
@@ -417,7 +426,7 @@ body {
   color: var(--filter-icon);
   cursor: pointer;
   flex-shrink: 0;
-  opacity: 0.72;
+  opacity: 1;
   transition: color 120ms ease, background 120ms ease, opacity 120ms ease;
 }
 
@@ -514,7 +523,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   padding: 0 0.4rem;
-  font-size: 0.65rem;
+  font-size: calc(0.65rem * var(--grid-text-scale, 1));
   font-variant-numeric: tabular-nums;
   color: var(--row-number-color);
   user-select: none;
@@ -540,9 +549,10 @@ body {
   padding: 0.35rem 0.5rem;
   border-right: 1px solid var(--border-cell-v);
   border-bottom: 1px solid var(--border-cell-h);
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--grid-text-scale, 1));
   line-height: 1.4;
-  min-height: calc(0.85rem * 1.4 + 0.7rem);
+  min-height: calc(var(--grid-row-height, 32px) - 1px);
+  padding-block: calc(0.35rem * var(--grid-text-scale, 1));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -556,7 +566,7 @@ body {
   text-overflow: clip;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
-  max-height: 6.65rem;
+  max-height: calc(6.65rem * var(--grid-text-scale, 1));
 }
 
 .data-grid--wrap-text .data-grid__row--expanded .data-grid__cell {
@@ -652,6 +662,7 @@ body {
 }
 
 .toolbar {
+  flex-wrap: wrap;
   position: relative;
   z-index: 10;
   display: flex;
@@ -1240,6 +1251,7 @@ body {
 
 .recent-panel__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
@@ -2299,4 +2311,58 @@ body {
 .theme-option--active .theme-option__label {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* Filter context stays visible even when its column scrolls offscreen. */
+.filter-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 12px; font-size: 0.8rem; }
+.filter-summary__count { font-weight: 600; white-space: nowrap; }
+.filter-summary__chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.filter-summary button { border: 1px solid var(--btn-border); border-radius: 6px; background: var(--bg-surface-solid); color: var(--text-primary); padding: 6px 10px; cursor: pointer; font: inherit; }
+.filter-summary button:hover { background: var(--hover-bg); }
+.filter-summary .filter-chip { display: flex; align-items: center; gap: 8px; max-width: 280px; background: var(--accent-bg); }
+.filter-chip > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-toggle, .sort-toggle { min-width: 24px; height: 24px; }
+.data-grid__add-row { color: var(--text-secondary); min-height: 32px; }
+.data-grid__add-row svg { opacity: 1; }
+.filter-summary button:focus-visible, .filter-toggle:focus-visible, .sort-toggle:focus-visible,
+.toolbar button:focus-visible, .data-grid__add-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Text sizing is a viewing preference shared by all sheets. */
+.data-grid:not(.data-grid--wrap-text) .data-grid__row {
+  height: var(--grid-row-height, 32px);
+}
+
+.data-grid__cell input {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-input);
+  border: 1px solid var(--accent-border-input);
+  padding: 0;
+}
+
+.toolbar-text-size {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.45rem;
+  -webkit-app-region: no-drag;
+}
+
+.toolbar-text-size button {
+  padding-inline: 0.4rem;
+  white-space: nowrap;
+}
+
+.toolbar-text-size__value {
+  min-width: 3.4rem;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar-text-size button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

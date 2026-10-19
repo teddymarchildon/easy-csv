@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Virtualizer } from '@tanstack/react-virtual';
@@ -40,6 +41,7 @@ interface DataGridProps {
   searchTerm?: string;
   searchMatches?: SearchMatch[];
   currentSearchMatch?: SearchMatch | null;
+  textSize: number;
   wrapText?: boolean;
   onToggleWrap(): void;
   onActiveColumnChange?: (columnIndex: number | null) => void;
@@ -74,7 +76,7 @@ const DEFAULT_COLUMN_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 50;
 const FILTER_HELP_DISMISSED_KEY = 'sheetEditor.filterHelpDismissed';
 
-const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, sorts, onFilterChange, onSetSort, onClearSort, onClearAllSorts, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, wrapText, onToggleWrap, onActiveColumnChange }, ref) => {
+const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, columnProfiles, filters, sorts, onFilterChange, onSetSort, onClearSort, onClearAllSorts, onEditCell, onEditHeader, onInsertRowAt, onInsertColumnAt, onDeleteRow, onDeleteColumn, onMoveRows, onMoveColumns, onBeginBatch, onCommitBatch, onOpenFilterHelp, onSearchNext, onSearchPrev, onSearchClose, searchTerm, searchMatches, currentSearchMatch, textSize, wrapText, onToggleWrap, onActiveColumnChange }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -98,7 +100,15 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   const dragSelectionRef = useRef<{ anchorRow: number; anchorCol: number; moved: boolean } | null>(null);
   const suppressNextClickRef = useRef(false);
   const mouseDownCellRef = useRef<{ row: number; col: number; wasSingleSelected: boolean } | null>(null);
-  const columnWidths = useGridStore((s) => s.columnWidths);
+  const savedColumnWidths = useGridStore((s) => s.columnWidths);
+  const columnWidths = useMemo(() => {
+    const context = document.createElement('canvas').getContext('2d');
+    if (context) context.font = '600 12px Inter, system-ui, sans-serif';
+    return headers.map((header, index) => savedColumnWidths[index] ?? Math.max(
+      DEFAULT_COLUMN_WIDTH,
+      Math.min(320, Math.ceil(context?.measureText(header.toUpperCase()).width ?? header.length * 8) + 84)
+    ));
+  }, [headers, savedColumnWidths]);
   const setColumnWidth = useGridStore((s) => s.setColumnWidth);
 
   useImperativeHandle(ref, () => ({
@@ -123,8 +133,8 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   // Row number gutter width adapts to digit count
   const rowNumWidth = useMemo(() => {
     const digits = Math.max(2, String(rows.length).length);
-    return digits * 7 + 16;
-  }, [rows.length]);
+    return Math.ceil(digits * 7 * textSize / 100) + 16;
+  }, [rows.length, textSize]);
 
   const totalGridWidth = useMemo(
     () => rowNumWidth + headers.reduce((sum, _, i) => sum + (columnWidths[i] ?? DEFAULT_COLUMN_WIDTH), 0),
@@ -309,9 +319,12 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     ? selected.range.focusRow
     : null;
 
+  const textScale = textSize / 100;
+  const rowHeight = Math.ceil(32 * textScale);
+
   const rowVirtualizer = useVirtualizer({
     count: filteredRows.length,
-    estimateSize: () => 32,
+    estimateSize: () => rowHeight,
     getScrollElement: () => scrollRef.current,
     overscan: 20,
     measureElement: wrapText
@@ -337,7 +350,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
   // Re-measure all rows when wrapping, column widths, or the expanded row changes.
   useEffect(() => {
     rowVirtualizerRef.current?.measure();
-  }, [wrapText, columnWidths, expandedRowIndex]);
+  }, [wrapText, textSize, columnWidths, expandedRowIndex]);
 
   useLayoutEffect(() => {
     const editor = cellEditorRef.current;
@@ -345,7 +358,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
     editor.style.height = 'auto';
     editor.style.height = `${Math.max(32, editor.scrollHeight)}px`;
     rowVirtualizerRef.current?.measure();
-  }, [draftValue, editing, wrapText]);
+  }, [draftValue, editing, wrapText, textSize]);
 
   useEffect(() => {
     columnVirtualizer.measure();
@@ -1323,7 +1336,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       const headerCtx = headerCanvas.getContext('2d');
       if (headerCtx) {
         headerCtx.font = '600 0.75rem Inter, system-ui, sans-serif';
-        maxWidth = Math.max(maxWidth, headerCtx.measureText(headerText).width);
+        maxWidth = Math.max(maxWidth, headerCtx.measureText(headerText.toUpperCase()).width + 52);
       }
 
       // Measure all row values
@@ -1356,6 +1369,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
       ref={gridRef}
       tabIndex={0}
       className={classNames('data-grid', { 'data-grid--resizing': isResizing, 'data-grid--wrap-text': wrapText })}
+      style={{ '--grid-text-scale': textScale, '--grid-row-height': `${rowHeight}px` } as CSSProperties}
       onClick={handleBackgroundClick}
       onKeyDown={handleKeyDown}
     >
@@ -1413,7 +1427,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span className="data-grid__header-text" style={{ cursor: 'default', flex: 1 }}>
+                    <span title={header} className="data-grid__header-text" style={{ cursor: 'default', flex: 1 }}>
                       {header}
                     </span>
                   )}
@@ -1424,6 +1438,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                         e.stopPropagation();
                         handleSortToggle(index, e.shiftKey);
                       }}
+                      aria-label={`Sort ${header}${activeSort ? `, ${activeSort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
                       title={
                         activeSort
                           ? `Sorted ${activeSort.direction === 'asc' ? 'ascending' : 'descending'}`
@@ -1449,7 +1464,9 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                           return next;
                         });
                       }}
-                      title="Filter column"
+                      title={`Filter ${header}`}
+                      aria-label={`Filter ${header}`}
+                      aria-expanded={openFilters.has(index)}
                     >
                       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M1 2a1 1 0 0 1 1-1h12a1 1 0 0 1 .8 1.6L10 10v4a1 1 0 0 1-.55.9l-2 1A1 1 0 0 1 6 15v-5L1.2 2.6A1 1 0 0 1 1 2z" />
@@ -1461,6 +1478,7 @@ const DataGrid = forwardRef<DataGridHandle, DataGridProps>(({ headers, rows, col
                   <div className="data-grid__filter-row">
                     <input
                       autoFocus
+                      aria-label={`Filter ${header}`}
                       placeholder={getFilterPlaceholder(profile)}
                       value={filters[index] ?? ''}
                       onClick={(event) => event.stopPropagation()}

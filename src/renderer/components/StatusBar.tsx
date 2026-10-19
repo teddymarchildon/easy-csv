@@ -5,12 +5,13 @@ interface StatusBarProps {
   dirty: boolean;
   progress: ProgressPayload | null;
   filteredRowCount: number;
+  hasActiveFilters: boolean;
   delimiter: string;
   newline: CsvNewline;
   hasUtf8Bom: boolean;
 }
 
-const StatusBar = ({ meta, dirty, progress, filteredRowCount, delimiter, newline, hasUtf8Bom }: StatusBarProps) => {
+const StatusBar = ({ meta, dirty, progress, filteredRowCount, hasActiveFilters, delimiter, newline, hasUtf8Bom }: StatusBarProps) => {
   const visibleRowCount = filteredRowCount < meta.rowCount ? filteredRowCount : meta.rowCount;
   const delimiterLabel = delimiter === '\t' ? 'Tab' : delimiter === ',' ? 'Comma' : delimiter === ';' ? 'Semicolon' : `“${delimiter}”`;
   const newlineLabel = newline === '\r\n' ? 'CRLF' : newline === '\r' ? 'CR' : 'LF';
@@ -18,7 +19,7 @@ const StatusBar = ({ meta, dirty, progress, filteredRowCount, delimiter, newline
   return (
     <div className="status-bar">
       <span>
-        {visibleRowCount} rows × {meta.columnCount} columns {dirty ? '(Unsaved)' : ''}
+        {hasActiveFilters ? `${visibleRowCount} of ${meta.rowCount}` : visibleRowCount} rows × {meta.columnCount} columns {dirty ? '(Unsaved)' : ''}
       </span>
       <span className="status-bar__middle">{meta.columnCount > 0 ? `${delimiterLabel} · UTF-8${hasUtf8Bom ? ' BOM' : ''} · ${newlineLabel}` : ''}</span>
       <span aria-live="polite">

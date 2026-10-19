@@ -18,11 +18,14 @@ import { useFileHandlers } from './hooks/useFileHandlers';
 import { buildFilteredRowEntries } from './state/filtering';
 import type { SortDirection } from './state/sorting';
 
-const DEFAULT_PANEL_WIDTH = 280;
+import { useTextSize } from './hooks/useTextSize';
+
+const DEFAULT_PANEL_WIDTH = 240;
 const MIN_PANEL_WIDTH = 140;
 const MAX_PANEL_WIDTH = 600;
 
 const App = () => {
+  const { textSize, setTextSize } = useTextSize();
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [selectedRecentPaths, setSelectedRecentPaths] = useState<string[]>([]);
   const [progress, setProgress] = useState<ProgressPayload | null>(null);
@@ -30,7 +33,7 @@ const App = () => {
   const [isPanelResizing, setIsPanelResizing] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
-      return window.localStorage.getItem('rowly.recentsCollapsed') === '1';
+      return window.localStorage.getItem('rowly.recentsCollapsed') !== '0';
     } catch {
       return false;
     }
@@ -848,12 +851,13 @@ const App = () => {
         searchTerm={searchTerm}
         searchMatches={searchMatches}
         currentSearchMatch={currentSearch}
+        textSize={textSize}
         wrapText={wrapText}
         onToggleWrap={toggleWrapText}
         onActiveColumnChange={setActiveColumnIndex}
       />
     );
-  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, insertRowAt, insertColumnAt, removeRow, removeColumn, moveRows, moveColumns, beginBatch, commitBatch, searchTerm, searchMatches, currentMatchIndex, wrapText, toggleWrapText, openFilterHelp, handleSearchNextAndFocusGrid, handleSearchPrevAndFocusGrid, handleFindBarClose]);
+  }, [headers, rows, columnProfiles, filters, sorts, setFilter, setSort, clearSort, clearAllSorts, updateCell, updateHeader, insertRowAt, insertColumnAt, removeRow, removeColumn, moveRows, moveColumns, beginBatch, commitBatch, searchTerm, searchMatches, currentMatchIndex, textSize, wrapText, toggleWrapText, openFilterHelp, handleSearchNextAndFocusGrid, handleSearchPrevAndFocusGrid, handleFindBarClose]);
 
   return (
     <div className="app-shell">
@@ -875,8 +879,10 @@ const App = () => {
         redoLabel={redoLabel}
         dirty={dirty}
         filePath={filePath}
+        textSize={textSize}
         wrapText={wrapText}
         onToggleWrap={toggleWrapText}
+        onTextSizeChange={setTextSize}
         onOpenHelp={openFilterHelp}
       />
       <TabBar onNew={handleCreateNewCsv} onClose={(tabId) => { void handleCloseTab(tabId); }} />
@@ -888,10 +894,10 @@ const App = () => {
       )}
       <div
         className={`viewport${isPanelResizing ? ' viewport--resizing' : ''}${panelCollapsed ? ' viewport--panel-collapsed' : ''}`}
-        style={{ gridTemplateColumns: panelCollapsed ? '0px 1fr' : `${panelWidth}px 1fr` }}
+        style={{ gridTemplateColumns: panelCollapsed || headers.length === 0 ? '0px minmax(0, 1fr)' : `${panelWidth}px minmax(0, 1fr)` }}
       >
-        <div className={`panel${panelCollapsed ? ' panel--collapsed' : ''}`}>
-      <RecentFilesPanel
+        <div id="recent-files-sidebar" className={`panel${panelCollapsed || headers.length === 0 ? ' panel--collapsed' : ''}`}>
+      {!panelCollapsed && headers.length > 0 && <RecentFilesPanel
         files={recentFiles}
         selectedPaths={selectedRecentPaths}
         onOpen={handleOpenRecent}
@@ -902,8 +908,8 @@ const App = () => {
         onReveal={handleRevealRecent}
         onClear={handleClearRecents}
             emptyState="No recent files yet."
-          />
-          {!panelCollapsed && (
+          />}
+          {!panelCollapsed && headers.length > 0 && (
             <div
               className="panel-resize-handle"
               onMouseDown={startPanelResize}
@@ -923,21 +929,37 @@ const App = () => {
             />
           )}
         </div>
-        <div className="grid-panel">
-          <button
-            className={`panel-toggle${panelCollapsed ? ' panel-toggle--collapsed' : ''}`}
-            onClick={togglePanel}
-            title={panelCollapsed ? 'Show sidebar (⌘B)' : 'Hide sidebar (⌘B)'}
-            aria-label={panelCollapsed ? 'Show Recent Files sidebar' : 'Hide Recent Files sidebar'}
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              {panelCollapsed ? (
-                <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              ) : (
-                <path d="M7 2L3 5l4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              )}
-            </svg>
-          </button>
+        <div className={`grid-panel${headers.length > 0 ? ' grid-panel--with-sidebar-control' : ''}`}>
+          {headers.length > 0 && (
+            <button
+              className="panel-toggle"
+              onClick={togglePanel}
+              aria-label={panelCollapsed ? 'Show Recent Files sidebar' : 'Hide Recent Files sidebar'}
+              aria-expanded={!panelCollapsed}
+              aria-controls="recent-files-sidebar"
+              title={`${panelCollapsed ? 'Show' : 'Hide'} sidebar (⌘B)`}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d={panelCollapsed ? 'M6 4l4 4-4 4' : 'M10 4L6 8l4 4'} />
+              </svg>
+            </button>
+          )}
+          {hasActiveFilters && (
+            <div className="filter-summary" aria-label="Active filters">
+              <span className="filter-summary__count" role="status">{filteredRowCount} of {rows.length} rows</span>
+              <div className="filter-summary__chips">
+                {Object.entries(filters).filter(([, value]) => value?.length > 0).map(([column, value]) => (
+                  <button key={column} className="filter-chip" onClick={() => setFilter(Number(column), '')}
+                    title={`Remove filter: ${headers[Number(column)]}: ${value}`}
+                    aria-label={`Remove filter on ${headers[Number(column)]}: ${value}`}>
+                    <span>{headers[Number(column)]}: {value}</span><span aria-hidden="true">×</span>
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => Object.keys(filters).forEach((column) => setFilter(Number(column), ''))}>Clear filters</button>
+              <button onClick={handleSaveFilteredAs}>Export filtered rows…</button>
+            </div>
+          )}
           {gridContent || (
             <div className="welcome-screen">
               <div className="welcome-hero">
@@ -1013,6 +1035,7 @@ const App = () => {
         dirty={dirty}
         progress={progress}
         filteredRowCount={filteredRowCount}
+        hasActiveFilters={hasActiveFilters}
         delimiter={delimiter}
         newline={newline}
         hasUtf8Bom={hasUtf8Bom}
