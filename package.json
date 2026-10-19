@@ -1,7 +1,7 @@
 {
   "name": "easy-sheet",
   "productName": "Rowly",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Lightweight macOS CSV editor built with Electron + React",
   "private": true,
   "type": "module",
